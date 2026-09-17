@@ -22,6 +22,9 @@ export type Database = {
           id: string
           is_blocked: boolean
           last_seen_at: string
+          referral_code: string | null
+          referral_earned: number
+          referred_by: string | null
           role: Database["public"]["Enums"]["app_role"]
           telegram_id: number
           updated_at: string
@@ -34,6 +37,9 @@ export type Database = {
           id?: string
           is_blocked?: boolean
           last_seen_at?: string
+          referral_code?: string | null
+          referral_earned?: number
+          referred_by?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           telegram_id: number
           updated_at?: string
@@ -46,12 +52,23 @@ export type Database = {
           id?: string
           is_blocked?: boolean
           last_seen_at?: string
+          referral_code?: string | null
+          referral_earned?: number
+          referred_by?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           telegram_id?: number
           updated_at?: string
           username?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "bot_users_referred_by_fkey"
+            columns: ["referred_by"]
+            isOneToOne: false
+            referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       orders: {
         Row: {
@@ -122,38 +139,99 @@ export type Database = {
       products: {
         Row: {
           active: boolean
+          category: string
           created_at: string
+          delivery_note: string | null
           description: string | null
           emoji: string | null
           id: string
           name: string
           price: number
+          sale_price: number | null
           slug: string
+          sort_order: number
           updated_at: string
         }
         Insert: {
           active?: boolean
+          category?: string
           created_at?: string
+          delivery_note?: string | null
           description?: string | null
           emoji?: string | null
           id?: string
           name: string
           price?: number
+          sale_price?: number | null
           slug: string
+          sort_order?: number
           updated_at?: string
         }
         Update: {
           active?: boolean
+          category?: string
           created_at?: string
+          delivery_note?: string | null
           description?: string | null
           emoji?: string | null
           id?: string
           name?: string
           price?: number
+          sale_price?: number | null
           slug?: string
+          sort_order?: number
           updated_at?: string
         }
         Relationships: []
+      }
+      referral_earnings: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          order_id: string | null
+          referrer_id: string
+          source_user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          order_id?: string | null
+          referrer_id: string
+          source_user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          order_id?: string | null
+          referrer_id?: string
+          source_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_earnings_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_earnings_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_earnings_source_user_id_fkey"
+            columns: ["source_user_id"]
+            isOneToOne: false
+            referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       shop_settings: {
         Row: {
@@ -314,11 +392,62 @@ export type Database = {
           },
         ]
       }
+      withdrawals: {
+        Row: {
+          address: string
+          admin_note: string | null
+          amount: number
+          bot_user_id: string
+          created_at: string
+          decided_at: string | null
+          id: string
+          method: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          address: string
+          admin_note?: string | null
+          amount: number
+          bot_user_id: string
+          created_at?: string
+          decided_at?: string | null
+          id?: string
+          method: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string
+          admin_note?: string | null
+          amount?: number
+          bot_user_id?: string
+          created_at?: string
+          decided_at?: string | null
+          id?: string
+          method?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "withdrawals_bot_user_id_fkey"
+            columns: ["bot_user_id"]
+            isOneToOne: false
+            referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      decide_withdrawal: {
+        Args: { p_approve: boolean; p_note: string; p_withdrawal: string }
+        Returns: undefined
+      }
       deliver_order: {
         Args: { p_order: string }
         Returns: {
@@ -332,6 +461,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      pay_referral_commission: {
+        Args: { p_order: string; p_percent: number }
+        Returns: number
+      }
       place_order: {
         Args: { p_bot_user: string; p_product: string }
         Returns: string
@@ -339,6 +472,15 @@ export type Database = {
       release_order: {
         Args: { p_order: string; p_status: string }
         Returns: undefined
+      }
+      request_withdrawal: {
+        Args: {
+          p_address: string
+          p_amount: number
+          p_bot_user: string
+          p_method: string
+        }
+        Returns: string
       }
     }
     Enums: {

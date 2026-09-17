@@ -17,3 +17,10 @@ Do not copy the original project's source or exact wording.
 - [ ] Later — flash sales, bulk discounts, notifications/back-in-stock, group announcements,
       withdrawal views in the dashboard, backups, API tokens
 - [x] Dashboard: stats, orders, customers (roles, block, balance), shop settings, broadcast
+
+## New requests (Sep 18)
+- [x] Telegram admin panel (/panel, /payments, /withdrawals, /credit, /debit, /whois, /ban,
+      /unban, /broadcast) with instant customer notifications on every decision
+- [x] Referrals: referral code, invite link, automatic commission on referred purchases
+- [x] Withdrawal requests: /withdraw holds the amount, admin approves/rejects in bot or dashboard
+- [x] Professional storefront: categories, sale prices, single-message navigation, demo catalogue

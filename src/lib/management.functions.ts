@@ -59,12 +59,16 @@ export const getDashboardStats = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertAdmin(context.userId);
     const db = await admin();
-    const [products, activeProducts, customers, stock, orders] = await Promise.all([
+    const [products, activeProducts, customers, stock, orders, payouts] = await Promise.all([
       db.from("products").select("id", { count: "exact", head: true }),
       db.from("products").select("id", { count: "exact", head: true }).eq("active", true),
       db.from("bot_users").select("id", { count: "exact", head: true }),
       db.from("stock_items").select("status"),
       db.from("orders").select("status, total_price"),
+      db
+        .from("withdrawals")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending"),
     ]);
     const stockRows = stock.data ?? [];
     const orderRows = orders.data ?? [];
@@ -76,6 +80,7 @@ export const getDashboardStats = createServerFn({ method: "GET" })
       pendingOrders: orderRows.filter((o) => o.status === "pending").length,
       paidOrders: orderRows.filter((o) => o.status === "paid").length,
       deliveredOrders: orderRows.filter((o) => o.status === "delivered").length,
+      pendingWithdrawals: payouts.count ?? 0,
       revenue: orderRows
         .filter((o) => o.status === "delivered" || o.status === "paid")
         .reduce((sum, o) => sum + Number(o.total_price ?? 0), 0),
@@ -171,6 +176,42 @@ export const updateOrder = createServerFn({ method: "POST" })
       const { data: delivered, error } = await db.rpc("deliver_order", { p_order: data.id });
       if (error) throw new Error(error.message);
       const payloads = (delivered ?? []).map((r: { payload: string }) => r.payload);
+      // Referral commission is paid once, when the order actually completes.
+      const { data: percentRow } = await db
+        .from("shop_settings")
+        .select("value")
+        .eq("key", "referral_percent")
+        .maybeSingle();
+      const percent = Number(percentRow?.value ?? 5);
+      if (percent > 0) {
+        const { data: commission } = await db.rpc("pay_referral_commission", {
+          p_order: data.id,
+          p_percent: percent,
+        });
+        if (Number(commission ?? 0) > 0) {
+          const { data: refUser } = await db
+            .from("orders")
+            .select("bot_users!inner(referred_by)")
+            .eq("id", data.id)
+            .maybeSingle();
+          const referrerId = (refUser as { bot_users: { referred_by: string | null } } | null)
+            ?.bot_users?.referred_by;
+          if (referrerId) {
+            const { data: referrer } = await db
+              .from("bot_users")
+              .select("telegram_id, balance")
+              .eq("id", referrerId)
+              .maybeSingle();
+            if (referrer) {
+              const { sendMessage } = await import("@/lib/telegram/gateway.server");
+              await sendMessage(
+                referrer.telegram_id,
+                `🎉 Referral bonus: +${Number(commission).toFixed(2)} added to your balance. New balance: ${Number(referrer.balance).toFixed(2)}`,
+              );
+            }
+          }
+        }
+      }
       if (data.note) await db.from("orders").update(note).eq("id", data.id);
       if (chatId && payloads.length) {
         const { sendMessage } = await import("@/lib/telegram/gateway.server");
@@ -377,4 +418,86 @@ export const broadcast = createServerFn({ method: "POST" })
       await new Promise((r) => setTimeout(r, 40));
     }
     return { sent, total: (users ?? []).length };
+  });
+
+
+export type WithdrawalRow = {
+  id: string;
+  amount: number;
+  method: string;
+  address: string;
+  status: string;
+  admin_note: string | null;
+  created_at: string;
+  decided_at: string | null;
+  customer: { telegram_id: number; username: string | null; first_name: string | null } | null;
+};
+
+export const listWithdrawals = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z
+      .object({ status: z.enum(["all", "pending", "approved", "rejected"]).default("all") })
+      .parse(d ?? {}),
+  )
+  .handler(async ({ context, data }): Promise<WithdrawalRow[]> => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    let query = db
+      .from("withdrawals")
+      .select(
+        "id, amount, method, address, status, admin_note, created_at, decided_at, bot_users(telegram_id, username, first_name)",
+      )
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (data.status !== "all") query = query.eq("status", data.status);
+    const { data: rows, error } = await query;
+    if (error) throw new Error(error.message);
+    return (rows ?? []).map((r) => {
+      const { bot_users, ...rest } = r as typeof r & { bot_users: WithdrawalRow["customer"] };
+      return { ...rest, amount: Number(rest.amount), customer: bot_users ?? null } as WithdrawalRow;
+    });
+  });
+
+/** Approves (pays out) or rejects (returns the held amount) a payout request. */
+export const decideWithdrawal = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        approve: z.boolean(),
+        note: z.string().trim().max(500).optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { data: row } = await db
+      .from("withdrawals")
+      .select("id, amount, method, status, bot_users(telegram_id)")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (!row) throw new Error("That payout request no longer exists.");
+    if (row.status !== "pending") throw new Error("This request was already decided.");
+
+    const { error } = await db.rpc("decide_withdrawal", {
+      p_withdrawal: data.id,
+      p_approve: data.approve,
+      p_note: data.note ?? "",
+    });
+    if (error) throw new Error(error.message);
+
+    const chatId = (row as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
+    if (chatId) {
+      const { sendMessage } = await import("@/lib/telegram/gateway.server");
+      await sendMessage(
+        chatId,
+        data.approve
+          ? `✅ Payout approved: ${Number(row.amount).toFixed(2)} via ${row.method}.${data.note ? `\n${data.note}` : ""}`
+          : `❌ Payout request rejected. ${Number(row.amount).toFixed(2)} has been returned to your balance.${data.note ? `\nReason: ${data.note}` : ""}`,
+      );
+    }
+    return { message: data.approve ? "Payout approved." : "Payout rejected and refunded." };
   });

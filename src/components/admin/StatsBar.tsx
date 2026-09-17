@@ -20,12 +20,13 @@ export function StatsBar() {
   if (!data) return null;
 
   return (
-    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
       <Stat label="Products" value={`${data.activeProducts}/${data.products}`} />
       <Stat label="In stock" value={data.availableStock} />
       <Stat label="Customers" value={data.customers} />
       <Stat label="Pending" value={data.pendingOrders} />
       <Stat label="Delivered" value={data.deliveredOrders} />
+      <Stat label="Payouts" value={data.pendingWithdrawals} />
       <Stat label="Revenue" value={data.revenue.toFixed(2)} />
     </div>
   );
