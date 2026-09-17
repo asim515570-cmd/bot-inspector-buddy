@@ -63,20 +63,20 @@ export function AdminShell({
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
+        <div className="flex h-18 items-center gap-3 border-b border-sidebar-border px-5">
+          <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
             <Store className="size-5" />
           </span>
           <div className="leading-tight">
             <p className="font-display text-sm font-semibold text-sidebar-foreground">Shop Console</p>
-            <p className="text-xs text-muted-foreground">Telegram storefront</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Telegram storefront</p>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+        <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
           {GROUPS.map((group) => (
             <div key={group}>
-              <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+              <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {group}
               </p>
               <ul className="space-y-0.5">
@@ -88,7 +88,7 @@ export function AdminShell({
                         type="button"
                         onClick={() => onSection(item.id)}
                         className={cn(
-                          "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                          "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors",
                           active
                             ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                             : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
@@ -105,7 +105,7 @@ export function AdminShell({
           ))}
         </nav>
 
-        <div className="border-t border-sidebar-border p-3">
+        <div className="border-t border-sidebar-border p-4">
           <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" onClick={onSignOut}>
             <LogOut className="size-4" /> Sign out
           </Button>
@@ -113,15 +113,15 @@ export function AdminShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-border bg-background/85 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 lg:px-8">
+        <header className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur">
+          <div className="flex min-h-18 flex-wrap items-center justify-between gap-3 px-5 py-3 lg:px-8">
             <div>
               <h1 className="font-display text-xl font-semibold">{title}</h1>
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
             </div>
             <div className="flex items-center gap-2">{actions}</div>
           </div>
-          <div className="flex gap-1 overflow-x-auto border-t border-border px-3 py-2 md:hidden">
+          <div className="flex gap-1 overflow-x-auto border-t border-border bg-card px-3 py-2 md:hidden">
             {NAV.map((item) => (
               <button
                 key={item.id}
@@ -130,7 +130,7 @@ export function AdminShell({
                 className={cn(
                   "whitespace-nowrap rounded-lg px-3 py-1.5 text-sm",
                   item.id === section
-                    ? "bg-accent font-medium text-accent-foreground"
+                    ? "bg-accent font-medium text-primary"
                     : "text-muted-foreground",
                 )}
               >
@@ -140,8 +140,8 @@ export function AdminShell({
           </div>
         </header>
 
-        <main className="flex-1 px-5 py-6 lg:px-8">
-          <div className="mx-auto w-full max-w-6xl space-y-6">{children}</div>
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-7xl space-y-6">{children}</div>
         </main>
       </div>
     </div>
