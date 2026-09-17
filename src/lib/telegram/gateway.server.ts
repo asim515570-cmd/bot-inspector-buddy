@@ -84,8 +84,19 @@ export async function editMessageText(
 /** Registers the command list shown in the Telegram "Menu" button. */
 export async function setMyCommands(
   commands: { command: string; description: string }[],
+  scope?: { type: "default" | "all_private_chats" | "all_group_chats" | "chat"; chat_id?: number },
 ): Promise<boolean> {
-  const res = (await callTelegram("setMyCommands", { commands })) as { ok?: boolean } | null;
+  const res = (await callTelegram("setMyCommands", {
+    commands,
+    ...(scope ? { scope } : {}),
+  })) as { ok?: boolean } | null;
+  return Boolean(res?.ok);
+}
+
+export async function deleteMyCommands(
+  scope: { type: "chat"; chat_id: number },
+): Promise<boolean> {
+  const res = (await callTelegram("deleteMyCommands", { scope })) as { ok?: boolean } | null;
   return Boolean(res?.ok);
 }
 

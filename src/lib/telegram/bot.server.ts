@@ -132,6 +132,10 @@ async function ensureUser(
       .maybeSingle();
     return (retry as BotUser | null) ?? null;
   }
+  if (data) {
+    const { syncUserCommandScope } = await import("./commands.server");
+    await syncUserCommandScope(from.id, role);
+  }
   return data as BotUser | null;
 }
 
