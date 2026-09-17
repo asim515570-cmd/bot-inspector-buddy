@@ -58,7 +58,7 @@ export const getAdminStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     try {
-      await assertAdmin(context.userId);
+      await assertAdmin(context);
       return { isAdmin: true as const };
     } catch {
       return { isAdmin: false as const };
@@ -68,7 +68,7 @@ export const getAdminStatus = createServerFn({ method: "GET" })
 export const listProducts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<AdminProduct[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const [{ data: products, error }, { data: stock }] = await Promise.all([
       db
@@ -77,7 +77,7 @@ export const listProducts = createServerFn({ method: "GET" })
         .order("created_at", { ascending: false }),
       db.from("stock_items").select("product_id, status"),
     ]);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return (products ?? []).map((p) => {
       const rows = (stock ?? []).filter((s) => s.product_id === p.id);
       return {
@@ -114,7 +114,7 @@ export const saveProduct = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
 
     if (data.active) {
@@ -144,7 +144,7 @@ export const saveProduct = createServerFn({ method: "POST" })
 
     if (data.id) {
       const { error } = await db.from("products").update(row).eq("id", data.id);
-      if (error) throw new Error(error.message);
+      if (error) throw dbFail(error);
       return { id: data.id };
     }
     const { data: created, error } = await db.from("products").insert(row).select("id").single();
@@ -156,7 +156,7 @@ export const deleteProduct = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { count } = await db
       .from("stock_items")
@@ -166,12 +166,12 @@ export const deleteProduct = createServerFn({ method: "POST" })
 
     if ((count ?? 0) > 0) {
       const { error } = await db.from("products").update({ active: false }).eq("id", data.id);
-      if (error) throw new Error(error.message);
+      if (error) throw dbFail(error);
       return { deleted: false as const, message: "This product has sold or reserved stock, so it was hidden instead of deleted." };
     }
     await db.from("stock_items").delete().eq("product_id", data.id).eq("status", "available");
     const { error } = await db.from("products").delete().eq("id", data.id);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return { deleted: true as const, message: "Product deleted." };
   });
 
@@ -181,7 +181,7 @@ export const addStock = createServerFn({ method: "POST" })
     z.object({ productId: z.string().uuid(), payloads: z.string().min(1).max(50_000) }).parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const lines = data.payloads
       .split("\n")
       .map((l) => l.trim())
@@ -192,7 +192,7 @@ export const addStock = createServerFn({ method: "POST" })
     const { error } = await db
       .from("stock_items")
       .insert(lines.map((payload) => ({ product_id: data.productId, payload, status: "available" as const })));
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return { added: lines.length };
   });
 
@@ -200,7 +200,7 @@ export const listStock = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ productId: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: rows, error } = await db
       .from("stock_items")
@@ -208,7 +208,7 @@ export const listStock = createServerFn({ method: "GET" })
       .eq("product_id", data.productId)
       .order("created_at", { ascending: false })
       .limit(500);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return rows ?? [];
   });
 
@@ -216,13 +216,13 @@ export const deleteStockItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: row } = await db.from("stock_items").select("status").eq("id", data.id).maybeSingle();
     if (!row) throw new Error("That stock item no longer exists.");
     if (row.status !== "available") throw new Error("Only unsold stock can be removed.");
     const { error } = await db.from("stock_items").delete().eq("id", data.id).eq("status", "available");
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return { ok: true };
   });
 
@@ -230,13 +230,13 @@ export const clearAvailableStock = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ productId: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { error, count } = await db
       .from("stock_items")
       .delete({ count: "exact" })
       .eq("product_id", data.productId)
       .eq("status", "available");
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return { removed: count ?? 0 };
   });

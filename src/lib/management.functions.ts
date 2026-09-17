@@ -72,7 +72,7 @@ export type CustomerRow = {
 export const getDashboardStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const [products, activeProducts, customers, stock, orders, payouts] = await Promise.all([
       db.from("products").select("id", { count: "exact", head: true }),
@@ -112,7 +112,7 @@ export const listOrders = createServerFn({ method: "GET" })
       .parse(d ?? {}),
   )
   .handler(async ({ context, data }): Promise<OrderRow[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     let query = db
       .from("orders")
@@ -123,7 +123,7 @@ export const listOrders = createServerFn({ method: "GET" })
       .limit(300);
     if (data.status !== "all") query = query.eq("status", data.status);
     const { data: rows, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return (rows ?? []).map((r) => {
       const { products, bot_users, ...rest } = r as typeof r & {
         products: OrderRow["product"];
@@ -156,7 +156,7 @@ export const updateOrder = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: order } = await db
       .from("orders")
@@ -177,7 +177,7 @@ export const updateOrder = createServerFn({ method: "POST" })
         .from("orders")
         .update({ status: "paid", paid_at: new Date().toISOString(), ...note })
         .eq("id", data.id);
-      if (error) throw new Error(error.message);
+      if (error) throw dbFail(error);
       if (chatId) {
         const { sendMessage } = await import("@/lib/telegram/gateway.server");
         await sendMessage(chatId, `✅ Payment confirmed for ${productName}. Delivery is on its way.`);
@@ -190,7 +190,7 @@ export const updateOrder = createServerFn({ method: "POST" })
       if (order.status === "cancelled" || order.status === "refunded")
         throw new Error("This order is closed and cannot be delivered.");
       const { data: delivered, error } = await db.rpc("deliver_order", { p_order: data.id });
-      if (error) throw new Error(error.message);
+      if (error) throw dbFail(error);
       const payloads = (delivered ?? []).map((r: { payload: string }) => r.payload);
       // Referral commission is paid once, when the order actually completes.
       const { data: percentRow } = await db
@@ -241,7 +241,7 @@ export const updateOrder = createServerFn({ method: "POST" })
 
     const status = data.action === "cancel" ? "cancelled" : "refunded";
     const { error } = await db.rpc("release_order", { p_order: data.id, p_status: status });
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     if (data.note) await db.from("orders").update(note).eq("id", data.id);
 
     if (data.action === "refund") {
@@ -282,7 +282,7 @@ export const updateOrder = createServerFn({ method: "POST" })
 export const listCustomers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<CustomerRow[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const [{ data: users, error }, { data: orders }] = await Promise.all([
       db
@@ -292,7 +292,7 @@ export const listCustomers = createServerFn({ method: "GET" })
         .limit(500),
       db.from("orders").select("bot_user_id, status, total_price"),
     ]);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return (users ?? []).map((u) => {
       const mine = (orders ?? []).filter((o) => o.bot_user_id === u.id);
       return {
@@ -320,7 +320,7 @@ export const updateCustomer = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: user } = await db
       .from("bot_users")
@@ -345,7 +345,7 @@ export const updateCustomer = createServerFn({ method: "POST" })
 
     if (Object.keys(patch).length === 0) return { message: "Nothing to change." };
     const { error } = await db.from("bot_users").update(patch).eq("id", data.id);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
 
     if (data.role) {
       const { data: changedUser } = await db
@@ -378,7 +378,7 @@ export const listWalletTransactions = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ botUserId: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: rows, error } = await db
       .from("wallet_transactions")
@@ -386,7 +386,7 @@ export const listWalletTransactions = createServerFn({ method: "GET" })
       .eq("bot_user_id", data.botUserId)
       .order("created_at", { ascending: false })
       .limit(100);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return (rows ?? []).map((r) => ({
       ...r,
       amount: Number(r.amount),
@@ -397,7 +397,7 @@ export const listWalletTransactions = createServerFn({ method: "GET" })
 export const getSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data } = await db.from("shop_settings").select("key, value");
     const map: Record<string, string> = {};
@@ -427,13 +427,13 @@ export const saveSettings = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const rows = Object.entries(data)
       .filter(([, value]) => value !== undefined)
       .map(([key, value]) => ({ key, value: value as string }));
     const { error } = await db.from("shop_settings").upsert(rows, { onConflict: "key" });
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     await logActivity(actorOf(context), "settings:save", `${rows.length} field(s)`);
     return { message: "Settings saved." };
   });
@@ -444,7 +444,7 @@ export const broadcast = createServerFn({ method: "POST" })
     z.object({ text: z.string().trim().min(1).max(3000) }).parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: users } = await db
       .from("bot_users")
@@ -487,7 +487,7 @@ export const listWithdrawals = createServerFn({ method: "GET" })
       .parse(d ?? {}),
   )
   .handler(async ({ context, data }): Promise<WithdrawalRow[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     let query = db
       .from("withdrawals")
@@ -498,7 +498,7 @@ export const listWithdrawals = createServerFn({ method: "GET" })
       .limit(200);
     if (data.status !== "all") query = query.eq("status", data.status);
     const { data: rows, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return (rows ?? []).map((r) => {
       const { bot_users, ...rest } = r as typeof r & { bot_users: WithdrawalRow["customer"] };
       return { ...rest, amount: Number(rest.amount), customer: bot_users ?? null } as WithdrawalRow;
@@ -518,7 +518,7 @@ export const decideWithdrawal = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: row } = await db
       .from("withdrawals")
@@ -533,7 +533,7 @@ export const decideWithdrawal = createServerFn({ method: "POST" })
       p_approve: data.approve,
       p_note: data.note ?? "",
     });
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
 
     const chatId = (row as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
     if (chatId) {
@@ -565,7 +565,7 @@ export type StockRow = {
 export const listStockOverview = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<StockRow[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const [{ data: products }, { data: items }] = await Promise.all([
       db.from("products").select("id, slug, name, emoji, price, active").order("sort_order"),
@@ -601,7 +601,7 @@ export type ReferrerRow = {
 export const listReferrals = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<ReferrerRow[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data: users } = await db
       .from("bot_users")
@@ -626,7 +626,7 @@ export const listReferrals = createServerFn({ method: "GET" })
 export const getBotStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const { telegramInfo } = await import("@/lib/telegram/gateway.server");
     const me = (await telegramInfo("getMe")) as
       | { result?: { username?: string; first_name?: string } }
@@ -655,7 +655,7 @@ export const getBotStatus = createServerFn({ method: "GET" })
 export const syncBotCommands = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const { registerBotCommands } = await import("@/lib/telegram/commands.server");
     const ok = await registerBotCommands();
     if (!ok) throw new Error("Telegram did not accept the command list. Check the bot connection.");
@@ -677,7 +677,7 @@ export type AnalyticsData = {
 export const getAnalytics = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<AnalyticsData> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
 
@@ -759,13 +759,13 @@ export type ActivityRow = {
 export const listActivity = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<ActivityRow[]> => {
-    await assertAdmin(context.userId);
+    await assertAdmin(context);
     const db = await admin();
     const { data, error } = await db
       .from("admin_activity")
       .select("id, actor, action, detail, created_at")
       .order("created_at", { ascending: false })
       .limit(100);
-    if (error) throw new Error(error.message);
+    if (error) throw dbFail(error);
     return (data ?? []) as ActivityRow[];
   });
