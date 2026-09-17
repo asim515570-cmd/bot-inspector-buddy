@@ -25,6 +25,21 @@ async function assertAdmin(userId: string) {
   if (!data) throw new Error("Not authorized. This account is not an administrator.");
 }
 
+/** Records an admin action for the dashboard activity feed. Never throws. */
+async function logActivity(actor: string, action: string, detail?: string) {
+  try {
+    const db = await admin();
+    await db.from("admin_activity").insert({ actor, action, detail: detail ?? null });
+  } catch {
+    // The audit trail must never break the action it describes.
+  }
+}
+
+function actorOf(context: { userId: string; claims?: unknown }) {
+  const claims = context.claims as { email?: string } | undefined;
+  return claims?.email ?? context.userId;
+}
+
 export type OrderRow = {
   id: string;
   status: string;
@@ -149,6 +164,7 @@ export const updateOrder = createServerFn({ method: "POST" })
       .eq("id", data.id)
       .maybeSingle();
     if (!order) throw new Error("That order no longer exists.");
+    await logActivity(actorOf(context), `order:${data.action}`, data.id);
 
     const chatId = (order as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
     const productName =
@@ -402,6 +418,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       .map(([key, value]) => ({ key, value: value as string }));
     const { error } = await db.from("shop_settings").upsert(rows, { onConflict: "key" });
     if (error) throw new Error(error.message);
+    await logActivity(actorOf(context), "settings:save", `${rows.length} field(s)`);
     return { message: "Settings saved." };
   });
 
@@ -429,6 +446,7 @@ export const broadcast = createServerFn({ method: "POST" })
       }
       await new Promise((r) => setTimeout(r, 40));
     }
+    await logActivity(actorOf(context), "broadcast", `${sent} recipient(s)`);
     return { sent, total: (users ?? []).length };
   });
 
@@ -511,6 +529,7 @@ export const decideWithdrawal = createServerFn({ method: "POST" })
           : `❌ Payout request rejected. ${Number(row.amount).toFixed(2)} has been returned to your balance.${data.note ? `\nReason: ${data.note}` : ""}`,
       );
     }
+    await logActivity(actorOf(context), data.approve ? "payout:approve" : "payout:reject", data.id);
     return { message: data.approve ? "Payout approved." : "Payout rejected and refunded." };
   });
 
@@ -625,4 +644,112 @@ export const syncBotCommands = createServerFn({ method: "POST" })
     const ok = await registerBotCommands();
     if (!ok) throw new Error("Telegram did not accept the command list. Check the bot connection.");
     return { message: "Bot command menu updated." };
+  });
+
+
+export type AnalyticsData = {
+  days: { date: string; revenue: number; orders: number }[];
+  topProducts: { name: string; emoji: string | null; units: number; revenue: number }[];
+  statuses: { status: string; count: number }[];
+  newCustomers7d: number;
+  revenue7d: number;
+  revenue30d: number;
+  averageOrder: number;
+};
+
+/** Sales analytics for the dashboard overview: last 30 days of orders. */
+export const getAnalytics = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<AnalyticsData> => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+
+    const [ordersRes, customersRes] = await Promise.all([
+      db
+        .from("orders")
+        .select("status, quantity, total_price, created_at, products(name, emoji)")
+        .gte("created_at", since)
+        .limit(5000),
+      db
+        .from("bot_users")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()),
+    ]);
+
+    type Row = {
+      status: string;
+      quantity: number | null;
+      total_price: number | string | null;
+      created_at: string;
+      products: { name: string; emoji: string | null } | null;
+    };
+    const rows = (ordersRes.data ?? []) as unknown as Row[];
+    const earning = (r: Row) => r.status === "paid" || r.status === "delivered";
+
+    const dayMap = new Map<string, { revenue: number; orders: number }>();
+    for (let i = 13; i >= 0; i--) {
+      const key = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      dayMap.set(key, { revenue: 0, orders: 0 });
+    }
+    const productMap = new Map<string, { name: string; emoji: string | null; units: number; revenue: number }>();
+    const statusMap = new Map<string, number>();
+    let revenue7d = 0;
+    let revenue30d = 0;
+    let earningCount = 0;
+    const sevenAgo = Date.now() - 7 * 24 * 3600 * 1000;
+
+    for (const r of rows) {
+      statusMap.set(r.status, (statusMap.get(r.status) ?? 0) + 1);
+      const total = Number(r.total_price ?? 0);
+      if (!earning(r)) continue;
+      earningCount += 1;
+      revenue30d += total;
+      const ts = new Date(r.created_at).getTime();
+      if (ts >= sevenAgo) revenue7d += total;
+      const key = r.created_at.slice(0, 10);
+      const day = dayMap.get(key);
+      if (day) {
+        day.revenue += total;
+        day.orders += 1;
+      }
+      const name = r.products?.name ?? "Unknown";
+      const entry = productMap.get(name) ?? { name, emoji: r.products?.emoji ?? null, units: 0, revenue: 0 };
+      entry.units += Number(r.quantity ?? 1);
+      entry.revenue += total;
+      productMap.set(name, entry);
+    }
+
+    return {
+      days: [...dayMap.entries()].map(([date, v]) => ({ date, ...v })),
+      topProducts: [...productMap.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8),
+      statuses: [...statusMap.entries()].map(([status, count]) => ({ status, count })),
+      newCustomers7d: customersRes.count ?? 0,
+      revenue7d,
+      revenue30d,
+      averageOrder: earningCount ? revenue30d / earningCount : 0,
+    };
+  });
+
+export type ActivityRow = {
+  id: string;
+  actor: string;
+  action: string;
+  detail: string | null;
+  created_at: string;
+};
+
+/** Recent admin actions (audit trail) for the dashboard. */
+export const listActivity = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<ActivityRow[]> => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { data, error } = await db
+      .from("admin_activity")
+      .select("id, actor, action, detail, created_at")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as ActivityRow[];
   });
