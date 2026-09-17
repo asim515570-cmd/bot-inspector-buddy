@@ -142,12 +142,6 @@ export const deleteProduct = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await assertAdmin(context.userId);
     const db = await admin();
-    const { data: locked } = await db
-      .from("stock_items")
-      .select("id", { count: "exact", head: true })
-      .eq("product_id", data.id)
-      .in("status", ["reserved", "delivered"]);
-    void locked;
     const { count } = await db
       .from("stock_items")
       .select("id", { count: "exact", head: true })
