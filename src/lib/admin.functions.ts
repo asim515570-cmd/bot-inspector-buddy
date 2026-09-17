@@ -1,0 +1,226 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { SLUG_PATTERN } from "@/lib/telegram/validation";
+
+export type AdminProduct = {
+  id: string;
+  slug: string;
+  name: string;
+  emoji: string | null;
+  description: string | null;
+  price: number;
+  active: boolean;
+  stock: { available: number; reserved: number; delivered: number };
+};
+
+async function admin() {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  return supabaseAdmin;
+}
+
+/**
+ * Verifies the caller holds the admin role, reading it fresh from the database
+ * on every call. Bootstraps the very first signed-in account as admin when no
+ * admin exists yet.
+ */
+async function assertAdmin(userId: string) {
+  const db = await admin();
+  const { data: mine } = await db
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("role", "admin")
+    .maybeSingle();
+  if (mine) return;
+
+  const { count } = await db
+    .from("user_roles")
+    .select("id", { count: "exact", head: true })
+    .eq("role", "admin");
+
+  if ((count ?? 0) === 0) {
+    const { error } = await db.from("user_roles").insert({ user_id: userId, role: "admin" });
+    if (!error) return;
+  }
+  throw new Error("Not authorized. This account is not an administrator.");
+}
+
+const slug = z.string().trim().toLowerCase().regex(SLUG_PATTERN, "Invalid slug");
+const price = z.number().nonnegative().max(1_000_000);
+
+export const getAdminStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    try {
+      await assertAdmin(context.userId);
+      return { isAdmin: true as const };
+    } catch {
+      return { isAdmin: false as const };
+    }
+  });
+
+export const listProducts = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<AdminProduct[]> => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const [{ data: products, error }, { data: stock }] = await Promise.all([
+      db
+        .from("products")
+        .select("id, slug, name, emoji, description, price, active")
+        .order("created_at", { ascending: false }),
+      db.from("stock_items").select("product_id, status"),
+    ]);
+    if (error) throw new Error(error.message);
+    return (products ?? []).map((p) => {
+      const rows = (stock ?? []).filter((s) => s.product_id === p.id);
+      return {
+        ...p,
+        price: Number(p.price),
+        stock: {
+          available: rows.filter((r) => r.status === "available").length,
+          reserved: rows.filter((r) => r.status === "reserved").length,
+          delivered: rows.filter((r) => r.status === "delivered").length,
+        },
+      };
+    });
+  });
+
+export const saveProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        slug,
+        name: z.string().trim().min(1).max(80),
+        emoji: z.string().trim().max(16).nullable(),
+        description: z.string().trim().max(1000).nullable(),
+        price,
+        active: z.boolean(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+
+    if (data.active) {
+      // Only allow activating a product that has stock to sell.
+      const query = data.id
+        ? db.from("stock_items").select("id", { count: "exact", head: true }).eq("product_id", data.id).eq("status", "available")
+        : null;
+      const count = query ? (await query).count ?? 0 : 0;
+      if (count === 0) {
+        throw new Error("Add at least one stock item before making this product visible to customers.");
+      }
+    }
+
+    const row = {
+      slug: data.slug,
+      name: data.name,
+      emoji: data.emoji || null,
+      description: data.description || null,
+      price: data.price,
+      active: data.active,
+    };
+
+    if (data.id) {
+      const { error } = await db.from("products").update(row).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      return { id: data.id };
+    }
+    const { data: created, error } = await db.from("products").insert(row).select("id").single();
+    if (error) throw new Error(error.message.includes("duplicate") ? "That slug is already used." : error.message);
+    return { id: created.id };
+  });
+
+export const deleteProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { count } = await db
+      .from("stock_items")
+      .select("id", { count: "exact", head: true })
+      .eq("product_id", data.id)
+      .in("status", ["reserved", "delivered"]);
+
+    if ((count ?? 0) > 0) {
+      const { error } = await db.from("products").update({ active: false }).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      return { deleted: false as const, message: "This product has sold or reserved stock, so it was hidden instead of deleted." };
+    }
+    await db.from("stock_items").delete().eq("product_id", data.id).eq("status", "available");
+    const { error } = await db.from("products").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { deleted: true as const, message: "Product deleted." };
+  });
+
+export const addStock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ productId: z.string().uuid(), payloads: z.string().min(1).max(50_000) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const lines = data.payloads
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 500);
+    if (lines.length === 0) throw new Error("Enter at least one stock item, one per line.");
+    const db = await admin();
+    const { error } = await db
+      .from("stock_items")
+      .insert(lines.map((payload) => ({ product_id: data.productId, payload, status: "available" as const })));
+    if (error) throw new Error(error.message);
+    return { added: lines.length };
+  });
+
+export const listStock = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ productId: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { data: rows, error } = await db
+      .from("stock_items")
+      .select("id, payload, status, delivered_at, created_at")
+      .eq("product_id", data.productId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    return rows ?? [];
+  });
+
+export const deleteStockItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { data: row } = await db.from("stock_items").select("status").eq("id", data.id).maybeSingle();
+    if (!row) throw new Error("That stock item no longer exists.");
+    if (row.status !== "available") throw new Error("Only unsold stock can be removed.");
+    const { error } = await db.from("stock_items").delete().eq("id", data.id).eq("status", "available");
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const clearAvailableStock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ productId: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { error, count } = await db
+      .from("stock_items")
+      .delete({ count: "exact" })
+      .eq("product_id", data.productId)
+      .eq("status", "available");
+    if (error) throw new Error(error.message);
+    return { removed: count ?? 0 };
+  });
