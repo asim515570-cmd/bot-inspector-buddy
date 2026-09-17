@@ -23,7 +23,6 @@ import { formatPrice, isValidEmoji, isValidSlug, parsePrice } from "./validation
 import {
   balanceScreen,
   categoriesScreen,
-  categoryScreen,
   effectivePrice,
   howItWorksScreen,
   mainMenu,
@@ -777,8 +776,9 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       const page = data.startsWith("browse:") ? Number(data.split(":")[1]) || 0 : 0;
       await categoriesScreen(view, Math.max(0, page));
     } else if (data.startsWith("cat:")) {
-      const [, idx, page] = data.split(":");
-      await categoryScreen(view, Number(idx) || 0, Math.max(0, Number(page) || 0));
+      // Legacy category buttons from older Telegram messages now open the
+      // complete product list instead of restoring the removed category UI.
+      await categoriesScreen(view, 0);
     } else if (data.startsWith("product:")) {
       await productScreen(view, data.slice(8));
     } else if (data.startsWith("buy:")) {
