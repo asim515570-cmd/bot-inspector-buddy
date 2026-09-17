@@ -55,26 +55,37 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           }: ${message?.text ?? "(non-text update)"}`,
         );
 
+        // Replay / duplicate protection: `update_id` is unique in the database,
+        // so a repeated (or replayed) update is recorded once and processed once.
+        let alreadySeen = false;
         try {
           const { supabaseAdmin } = await import(
             "@/integrations/supabase/client.server"
           );
-          await supabaseAdmin.from("telegram_updates").insert({
+          const { error } = await supabaseAdmin.from("telegram_updates").insert({
             update_id: updateId,
             telegram_user_id: message?.from?.id ?? null,
             chat_id: message?.chat?.id ?? null,
             text: message?.text ?? null,
             payload: update as Record<string, unknown> as never,
           });
+          if (error?.code === "23505") {
+            alreadySeen = true;
+            console.warn(`[telegram] duplicate update ${updateId ?? "?"} ignored`);
+          } else if (error) {
+            console.error(`[telegram] failed to persist update: ${error.message}`);
+          }
         } catch (err) {
           console.error("[telegram] failed to persist update", err);
         }
 
-        try {
-          const { handleUpdate } = await import("@/lib/telegram/bot.server");
-          await handleUpdate(update as never);
-        } catch (err) {
-          console.error("[telegram] handler error", err);
+        if (!alreadySeen) {
+          try {
+            const { handleUpdate } = await import("@/lib/telegram/bot.server");
+            await handleUpdate(update as never);
+          } catch (err) {
+            console.error("[telegram] handler error", err);
+          }
         }
 
         // Always 200 quickly so Telegram does not retry.
