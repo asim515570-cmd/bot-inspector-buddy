@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      action_rate_limits: {
+        Row: {
+          blocked_until: string | null
+          hits: number
+          key: string
+          window_start: string
+        }
+        Insert: {
+          blocked_until?: string | null
+          hits?: number
+          key: string
+          window_start?: string
+        }
+        Update: {
+          blocked_until?: string | null
+          hits?: number
+          key?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       admin_activity: {
         Row: {
           action: string
@@ -492,6 +513,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      action_rate_check: {
+        Args: {
+          p_cooldown_seconds?: number
+          p_key: string
+          p_limit?: number
+          p_window_seconds?: number
+        }
+        Returns: boolean
+      }
       bot_rate_check: {
         Args: {
           p_cooldown_seconds?: number
