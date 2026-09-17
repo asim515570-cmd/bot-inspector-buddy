@@ -13,7 +13,9 @@ Do not copy the original project's source or exact wording.
       exchange auto-verification + duplicate-txid protection still pending
 - [~] Step 6 — Wallet balance + ledger done (admin top-up, refunds, spend at checkout);
       referrals and withdrawal requests still pending
-- [ ] Step 8 — Abuse prevention: per-user rate limiting, banned users, private-chat enforcement
+- [x] Step 8 — Abuse prevention (DB-backed per-user flood limit: 20 actions/10s, 30s cooldown)
+- [x] Overview section: 14-day sales chart, best sellers, admin activity log
+- [x] Broadcast section + add stock codes directly from the Stock section
 - [ ] Later — flash sales, bulk discounts, notifications/back-in-stock, group announcements,
       withdrawal views in the dashboard, backups, API tokens
 - [x] Dashboard: stats, orders, customers (roles, block, balance), shop settings, broadcast

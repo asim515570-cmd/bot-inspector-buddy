@@ -41,6 +41,7 @@ import {
   depositScreen,
   apiScreen,
 } from "./storefront.server";
+import { allowRequest } from "./ratelimit.server";
 import {
   OPS_COMMANDS,
   decidePayment,
@@ -753,6 +754,10 @@ async function handleAdminCommand(
 export async function handleUpdate(update: TgUpdate): Promise<void> {
   const callback = update.callback_query;
   if (callback?.from && callback.message?.chat?.id) {
+    if (!(await allowRequest(callback.from.id))) {
+      await answerCallbackQuery(callback.id);
+      return;
+    }
     const user = await ensureUser(callback.from);
     if (!user) return;
     const chatId = callback.message.chat.id;
@@ -833,6 +838,13 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   const message = update.message ?? update.edited_message;
   if (!message?.from || !message.chat?.id) return;
+  if (!(await allowRequest(message.from.id))) {
+    await sendMessage(
+      message.chat.id,
+      "⏳ Too many requests. Please wait about half a minute and try again.",
+    );
+    return;
+  }
 
   const startPayload = (message.text ?? "").trim().startsWith("/start")
     ? (message.text ?? "").trim().split(/\s+/)[1]

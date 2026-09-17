@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_activity: {
+        Row: {
+          action: string
+          actor: string
+          created_at: string
+          detail: string | null
+          id: string
+        }
+        Insert: {
+          action: string
+          actor: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor?: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      bot_rate_limits: {
+        Row: {
+          blocked_until: string | null
+          hits: number
+          telegram_id: number
+          window_start: string
+        }
+        Insert: {
+          blocked_until?: string | null
+          hits?: number
+          telegram_id: number
+          window_start?: string
+        }
+        Update: {
+          blocked_until?: string | null
+          hits?: number
+          telegram_id?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       bot_users: {
         Row: {
           balance: number
@@ -447,6 +492,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      bot_rate_check: {
+        Args: {
+          p_cooldown_seconds?: number
+          p_limit?: number
+          p_telegram_id: number
+          p_window_seconds?: number
+        }
+        Returns: boolean
+      }
       decide_withdrawal: {
         Args: { p_approve: boolean; p_note: string; p_withdrawal: string }
         Returns: undefined
