@@ -24,3 +24,12 @@ Do not copy the original project's source or exact wording.
 - [x] Referrals: referral code, invite link, automatic commission on referred purchases
 - [x] Withdrawal requests: /withdraw holds the amount, admin approves/rejects in bot or dashboard
 - [x] Professional storefront: categories, sale prices, single-message navigation, demo catalogue
+
+## New (screenshot-driven bot UX)
+- [ ] Product list buttons: "Name | $price (stock)" + Prev / page / End + Refresh + Back
+- [ ] Product detail: Price per code, Stock, Sold, description + delivery instructions blocks, Buy Now / Back to Store
+- [ ] Quantity select screen (1,2,3,5,10,15,20,25 + custom amount)
+- [ ] Order summary screen (qty, price each, total) -> Choose payment method
+- [ ] Payment method screen: methods configurable from dashboard, per-method instructions screen with Back / Cancel Order
+- [ ] Bot command menu: /start /menu /help via setMyCommands
+- [ ] Dashboard: edit category, sale price, delivery note, sort order, payment methods
