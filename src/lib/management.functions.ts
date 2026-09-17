@@ -385,6 +385,12 @@ export const saveSettings = createServerFn({ method: "POST" })
         referral_percent: z.string().trim().max(5).optional(),
         min_withdraw: z.string().trim().max(12).optional(),
         bot_username: z.string().trim().max(64).optional(),
+        store_name: z.string().trim().max(120).optional(),
+        channel_url: z.string().trim().max(300).optional(),
+        group_url: z.string().trim().max(300).optional(),
+        terms_url: z.string().trim().max(300).optional(),
+        notice: z.string().trim().max(500).optional(),
+        api_info: z.string().trim().max(1000).optional(),
       })
       .parse(d),
   )

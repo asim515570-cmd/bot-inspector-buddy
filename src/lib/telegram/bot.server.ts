@@ -37,6 +37,9 @@ import {
   summaryScreen,
   supportScreen,
   type View,
+  profileScreen,
+  depositScreen,
+  apiScreen,
 } from "./storefront.server";
 import {
   OPS_COMMANDS,
@@ -798,6 +801,12 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       await ordersScreen(view, user);
     } else if (data.startsWith("balance")) {
       await balanceScreen(view, user);
+    } else if (data === "profile") {
+      await profileScreen(view, user);
+    } else if (data === "deposit") {
+      await depositScreen(view, user);
+    } else if (data === "api") {
+      await apiScreen(view);
     } else if (data === "support") {
       await supportScreen(view);
     } else if (data === "how") {
