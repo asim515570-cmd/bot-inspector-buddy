@@ -40,7 +40,12 @@ async function callTelegram(
   }
 }
 
-export type InlineButton = { text: string; callback_data?: string; url?: string };
+export type InlineButton = {
+  text: string;
+  callback_data?: string;
+  url?: string;
+  style?: "primary" | "success" | "danger";
+};
 
 export async function sendMessage(
   chatId: number,
