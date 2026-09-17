@@ -40,19 +40,40 @@ async function callTelegram(
   }
 }
 
-export type InlineButton = { text: string; callback_data: string };
+export type InlineButton = { text: string; callback_data?: string; url?: string };
 
 export async function sendMessage(
   chatId: number,
   text: string,
   keyboard?: InlineButton[][],
-): Promise<void> {
+  html = false,
+): Promise<number | null> {
   console.log(`[telegram] -> chat ${chatId}: ${text.replace(/\n/g, " | ")}`);
-  await callTelegram("sendMessage", {
+  const res = (await callTelegram("sendMessage", {
     chat_id: chatId,
     text,
+    ...(html ? { parse_mode: "HTML", link_preview_options: { is_disabled: true } } : {}),
     ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
-  });
+  })) as { result?: { message_id?: number } } | null;
+  return res?.result?.message_id ?? null;
+}
+
+/** Edits an existing bot message in place (single-message navigation UI). */
+export async function editMessageText(
+  chatId: number,
+  messageId: number,
+  text: string,
+  keyboard?: InlineButton[][],
+  html = false,
+): Promise<boolean> {
+  const res = (await callTelegram("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    ...(html ? { parse_mode: "HTML", link_preview_options: { is_disabled: true } } : {}),
+    ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+  })) as { ok?: boolean } | null;
+  return Boolean(res?.ok);
 }
 
 export async function answerCallbackQuery(

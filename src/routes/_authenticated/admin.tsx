@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WithdrawalsPanel } from "@/components/admin/WithdrawalsPanel";
 import { StatsBar } from "@/components/admin/StatsBar";
 import { OrdersPanel } from "@/components/admin/OrdersPanel";
 import { CustomersPanel } from "@/components/admin/CustomersPanel";
@@ -207,6 +208,7 @@ function AdminPage() {
           <TabsTrigger value="products">Products</TabsTrigger>
           <TabsTrigger value="orders">Orders</TabsTrigger>
           <TabsTrigger value="customers">Customers</TabsTrigger>
+          <TabsTrigger value="payouts">Payouts</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
@@ -215,6 +217,9 @@ function AdminPage() {
         </TabsContent>
         <TabsContent value="customers">
           <CustomersPanel />
+        </TabsContent>
+        <TabsContent value="payouts">
+          <WithdrawalsPanel />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsPanel />

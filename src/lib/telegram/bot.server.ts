@@ -20,8 +20,30 @@ import {
   type InlineButton,
 } from "./gateway.server";
 import { formatPrice, isValidEmoji, isValidSlug, parsePrice } from "./validation";
+import {
+  balanceScreen,
+  categoriesScreen,
+  categoryScreen,
+  effectivePrice,
+  howItWorksScreen,
+  mainMenu,
+  ordersScreen,
+  productScreen,
+  setting,
+  supportScreen,
+  type View,
+} from "./storefront.server";
+import {
+  OPS_COMMANDS,
+  decidePayment,
+  decidePayout,
+  handleOpsCommand,
+  referralScreen,
+  requestWithdrawal,
+  submitPayment,
+  withdrawScreen,
+} from "./ops.server";
 
-const PAGE_SIZE = 8;
 
 type TgUser = { id: number; username?: string; first_name?: string };
 type TgChat = { id: number; type?: string };
@@ -30,7 +52,7 @@ type TgCallback = {
   id: string;
   from?: TgUser;
   data?: string;
-  message?: { chat?: TgChat };
+  message?: { chat?: TgChat; message_id?: number };
 };
 export type TgUpdate = {
   update_id?: number;
@@ -52,7 +74,10 @@ function bootstrapAdminIds(): Set<number> {
 }
 
 /** Loads the bot user, creating it on first interaction (bootstrap moment). */
-async function ensureUser(from: TgUser): Promise<BotUser | null> {
+async function ensureUser(
+  from: TgUser,
+  referralCode?: string,
+): Promise<BotUser | null> {
   const { data: existing } = await supabaseAdmin
     .from("bot_users")
     .select("id, telegram_id, role, is_blocked")
@@ -62,6 +87,18 @@ async function ensureUser(from: TgUser): Promise<BotUser | null> {
   if (existing) return existing as BotUser;
 
   const role = bootstrapAdminIds().has(from.id) ? "admin" : "customer";
+
+  // Referral link: /start <code>. Only ever applied when the row is created.
+  let referredBy: string | null = null;
+  if (referralCode && /^[A-Za-z0-9]{4,16}$/.test(referralCode)) {
+    const { data: referrer } = await supabaseAdmin
+      .from("bot_users")
+      .select("id, telegram_id")
+      .eq("referral_code", referralCode.toUpperCase())
+      .maybeSingle();
+    if (referrer && referrer.telegram_id !== from.id) referredBy = referrer.id;
+  }
+
   console.log(
     `[telegram] bootstrap: creating user ${from.id} with role '${role}'`,
   );
@@ -73,6 +110,7 @@ async function ensureUser(from: TgUser): Promise<BotUser | null> {
       username: from.username ?? null,
       first_name: from.first_name ?? null,
       role,
+      ...(referredBy ? { referred_by: referredBy } : {}),
     })
     .select("id, telegram_id, role, is_blocked")
     .maybeSingle();
@@ -119,29 +157,9 @@ async function getProduct(slug: string) {
 
 // ---------------------------------------------------------------- customer
 
-async function setting(key: string, fallback: string): Promise<string> {
-  const { data } = await supabaseAdmin
-    .from("shop_settings")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
-  const value = (data?.value ?? "").trim();
-  return value || fallback;
-}
-
-async function showWelcome(chatId: number) {
-  const welcome = await setting("welcome_message", "Welcome to the shop! 🛍");
-  await sendMessage(chatId, `${welcome}\n\nTap below to see what's in stock.`, [
-    [{ text: "Browse Products", callback_data: "browse:0" }],
-    [
-      { text: "My Orders", callback_data: "orders:0" },
-      { text: "Balance", callback_data: "balance:0" },
-    ],
-  ]);
-}
-
 /** Creates an order: reserves one unit atomically, then pays from balance if possible. */
-async function startCheckout(chatId: number, user: BotUser, slug: string) {
+async function startCheckout(view: View, user: BotUser, slug: string) {
+  const chatId = view.chatId;
   const product = await getProduct(slug);
   if (!product || !product.active) {
     await sendMessage(chatId, "That product is not available.");
@@ -161,7 +179,7 @@ async function startCheckout(chatId: number, user: BotUser, slug: string) {
     return;
   }
 
-  const price = Number(product.price);
+  const price = effectivePrice(product);
   const { data: me } = await supabaseAdmin
     .from("bot_users")
     .select("balance")
@@ -216,89 +234,6 @@ async function startCheckout(chatId: number, user: BotUser, slug: string) {
   );
 }
 
-async function showOrders(chatId: number, user: BotUser) {
-  const { data } = await supabaseAdmin
-    .from("orders")
-    .select("id, status, total_price, created_at, products(name, emoji)")
-    .eq("bot_user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  const rows = data ?? [];
-  if (rows.length === 0) {
-    await sendMessage(chatId, "You have no orders yet.");
-    return;
-  }
-  const lines = rows.map((o) => {
-    const p = (o as { products: { name: string; emoji: string | null } | null }).products;
-    return `${String(o.id).slice(0, 8)} · ${p?.name ?? "item"} · ${formatPrice(o.total_price)} · ${o.status}`;
-  });
-  await sendMessage(chatId, `🧾 Your latest orders:\n\n${lines.join("\n")}`);
-}
-
-async function showBalance(chatId: number, user: BotUser) {
-  const { data } = await supabaseAdmin
-    .from("bot_users")
-    .select("balance")
-    .eq("id", user.id)
-    .maybeSingle();
-  await sendMessage(
-    chatId,
-    `💰 Your balance: ${formatPrice(Number(data?.balance ?? 0))}\n\nBalance is added by an admin (top-ups and refunds) and is spent automatically at checkout.`,
-  );
-}
-
-async function showCatalog(chatId: number, page: number) {
-  const from = page * PAGE_SIZE;
-  const { data, count } = await supabaseAdmin
-    .from("products")
-    .select("slug, name, emoji, price", { count: "exact" })
-    .eq("active", true)
-    .order("name", { ascending: true })
-    .range(from, from + PAGE_SIZE - 1);
-
-  const products = data ?? [];
-  if (products.length === 0) {
-    await sendMessage(chatId, "No products are available right now.");
-    return;
-  }
-
-  const rows: InlineButton[][] = products.map((p) => [
-    {
-      text: `${p.emoji ? `${p.emoji} ` : ""}${p.name} — ${formatPrice(p.price)}`,
-      callback_data: `product:${p.slug}`,
-    },
-  ]);
-
-  const nav: InlineButton[] = [];
-  if (page > 0) nav.push({ text: "« Prev", callback_data: `browse:${page - 1}` });
-  if ((count ?? 0) > from + PAGE_SIZE)
-    nav.push({ text: "Next »", callback_data: `browse:${page + 1}` });
-  if (nav.length) rows.push(nav);
-
-  await sendMessage(chatId, "Products:", rows);
-}
-
-async function showProduct(chatId: number, slug: string) {
-  const product = await getProduct(slug);
-  if (!product || !product.active) {
-    await sendMessage(chatId, "That product is not available.");
-    return;
-  }
-  const stock = await availableCount(product.id);
-  const lines = [
-    `${product.emoji ? `${product.emoji} ` : ""}${product.name}`,
-    product.description ? `\n${product.description}` : "",
-    `\nPrice: ${formatPrice(product.price)}`,
-    `In stock: ${stock}`,
-  ].filter(Boolean);
-
-  await sendMessage(chatId, lines.join("\n"), [
-    [{ text: "Buy", callback_data: `buy:${product.slug}` }],
-    [{ text: "« Back", callback_data: "browse:0" }],
-  ]);
-}
-
 // ------------------------------------------------------------------- admin
 
 const ADMIN_COMMANDS = new Set([
@@ -331,6 +266,11 @@ async function handleAdminCommand(
   console.log(
     `[telegram] authz ok: telegram_id=${user.telegram_id} command=${command}`,
   );
+
+  if (OPS_COMMANDS.has(command)) {
+    await handleOpsCommand(command, rest, chatId);
+    return;
+  }
 
   const firstLine = rest.split("\n")[0] ?? "";
   const args = firstLine.trim().split(/\s+/).filter(Boolean);
@@ -597,17 +537,43 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       return;
     }
 
-    if (data.startsWith("browse:")) {
-      const page = Math.max(0, Number(data.slice(7)) || 0);
-      await showCatalog(chatId, page);
+    const view: View = { chatId, messageId: callback.message.message_id };
+
+    if (data === "menu" || data.startsWith("start")) {
+      await mainMenu(view, user);
+    } else if (data === "shop" || data.startsWith("browse")) {
+      await categoriesScreen(view);
+    } else if (data.startsWith("cat:")) {
+      const [, idx, page] = data.split(":");
+      await categoryScreen(view, Number(idx) || 0, Math.max(0, Number(page) || 0));
     } else if (data.startsWith("product:")) {
-      await showProduct(chatId, data.slice(8));
+      await productScreen(view, data.slice(8));
     } else if (data.startsWith("buy:")) {
-      await startCheckout(chatId, user, data.slice(4));
-    } else if (data.startsWith("orders:")) {
-      await showOrders(chatId, user);
-    } else if (data.startsWith("balance:")) {
-      await showBalance(chatId, user);
+      await startCheckout(view, user, data.slice(4));
+    } else if (data.startsWith("orders")) {
+      await ordersScreen(view, user);
+    } else if (data.startsWith("balance")) {
+      await balanceScreen(view, user);
+    } else if (data === "support") {
+      await supportScreen(view);
+    } else if (data === "how") {
+      await howItWorksScreen(view);
+    } else if (data === "refer") {
+      await referralScreen(view, user, process.env["TELEGRAM_BOT_USERNAME"] ?? "");
+    } else if (data === "withdraw") {
+      await withdrawScreen(view, user);
+    } else if (/^(apay|rpay|awd|rwd):/.test(data)) {
+      // Admin actions from the in-Telegram panel: role re-read from the DB.
+      if (!(await isAdminNow(user.telegram_id))) {
+        console.warn(`[telegram] authz denied: telegram_id=${user.telegram_id} action=${data}`);
+        await sendMessage(chatId, "⛔ Not authorized.");
+        return;
+      }
+      const [kind, ref] = data.split(":") as [string, string];
+      if (kind === "apay") await decidePayment(chatId, ref, true);
+      else if (kind === "rpay") await decidePayment(chatId, ref, false);
+      else if (kind === "awd") await decidePayout(chatId, ref, true);
+      else await decidePayout(chatId, ref, false);
     }
     return;
   }
@@ -615,7 +581,10 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   const message = update.message ?? update.edited_message;
   if (!message?.from || !message.chat?.id) return;
 
-  const user = await ensureUser(message.from);
+  const startPayload = (message.text ?? "").trim().startsWith("/start")
+    ? (message.text ?? "").trim().split(/\s+/)[1]
+    : undefined;
+  const user = await ensureUser(message.from, startPayload);
   if (!user) return;
 
   const chatId = message.chat.id;
@@ -632,7 +601,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   const rest = text.slice((rawCommand ?? "").length).trim();
   void restParts;
 
-  if (ADMIN_COMMANDS.has(command)) {
+  if (ADMIN_COMMANDS.has(command) || OPS_COMMANDS.has(command)) {
     if (!isPrivate) {
       console.warn(
         `[telegram] admin command ${command} rejected: non-private chat ${chatId}`,
@@ -646,29 +615,46 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   switch (command) {
     case "/start":
-      await showWelcome(chatId);
+    case "/menu":
+      await mainMenu({ chatId }, user);
       return;
+    case "/shop":
     case "/browse":
-      await showCatalog(chatId, 0);
+      await categoriesScreen({ chatId });
       return;
     case "/orders":
-      await showOrders(chatId, user);
+      await ordersScreen({ chatId }, user);
       return;
     case "/balance":
-      await showBalance(chatId, user);
+      await balanceScreen({ chatId }, user);
       return;
-    case "/support": {
-      const contact = await setting("support_contact", "");
-      await sendMessage(
-        chatId,
-        contact ? `Need help? Contact ${contact}` : "Support contact has not been set up yet.",
-      );
+    case "/support":
+      await supportScreen({ chatId });
       return;
-    }
+    case "/refer":
+      await referralScreen({ chatId }, user, process.env["TELEGRAM_BOT_USERNAME"] ?? "");
+      return;
+    case "/withdraw":
+      if (rest.trim()) await requestWithdrawal(chatId, user, rest);
+      else await withdrawScreen({ chatId }, user);
+      return;
+    case "/pay":
+      await submitPayment(chatId, user, rest);
+      return;
     case "/help":
       await sendMessage(
         chatId,
-        "Commands:\n/start — main menu\n/browse — see products\n/orders — your orders\n/balance — your balance\n/support — get help",
+        [
+          "Commands:",
+          "/start — main menu",
+          "/shop — browse categories",
+          "/orders — your orders",
+          "/balance — your balance",
+          "/pay <order id> <transaction ref> — submit a payment",
+          "/refer — your referral link and earnings",
+          "/withdraw — request a payout",
+          "/support — get help",
+        ].join("\n"),
       );
       return;
     default:
