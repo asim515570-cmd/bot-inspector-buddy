@@ -206,6 +206,39 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
       p_order: orderId as string,
     });
     const payloads = ((delivered ?? []) as { payload: string }[]).map((r) => r.payload);
+
+    // Referral commission, paid once per completed order.
+    const { data: percentRow } = await supabaseAdmin
+      .from("shop_settings")
+      .select("value")
+      .eq("key", "referral_percent")
+      .maybeSingle();
+    const percent = Number(percentRow?.value ?? 5);
+    if (percent > 0) {
+      const { data: commission } = await supabaseAdmin.rpc("pay_referral_commission", {
+        p_order: orderId as string,
+        p_percent: percent,
+      });
+      if (Number(commission ?? 0) > 0) {
+        const { data: buyer } = await supabaseAdmin
+          .from("bot_users")
+          .select("referred_by")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (buyer?.referred_by) {
+          const { data: referrer } = await supabaseAdmin
+            .from("bot_users")
+            .select("telegram_id, balance")
+            .eq("id", buyer.referred_by)
+            .maybeSingle();
+          if (referrer)
+            await sendMessage(
+              referrer.telegram_id,
+              `🎉 Referral bonus: +${formatPrice(Number(commission))} added to your balance. New balance: ${formatPrice(Number(referrer.balance))}`,
+            );
+        }
+      }
+    }
     await sendMessage(
       chatId,
       payloads.length
