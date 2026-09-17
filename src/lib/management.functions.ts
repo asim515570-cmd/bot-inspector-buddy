@@ -507,3 +507,116 @@ export const decideWithdrawal = createServerFn({ method: "POST" })
     }
     return { message: data.approve ? "Payout approved." : "Payout rejected and refunded." };
   });
+
+export type StockRow = {
+  product_id: string;
+  slug: string;
+  name: string;
+  emoji: string | null;
+  price: number;
+  active: boolean;
+  available: number;
+  reserved: number;
+  delivered: number;
+};
+
+/** Stock levels for every product (counts only — payloads are never returned). */
+export const listStockOverview = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<StockRow[]> => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const [{ data: products }, { data: items }] = await Promise.all([
+      db.from("products").select("id, slug, name, emoji, price, active").order("sort_order"),
+      db.from("stock_items").select("product_id, status"),
+    ]);
+    return (products ?? []).map((p) => {
+      const mine = (items ?? []).filter((i) => i.product_id === p.id);
+      return {
+        product_id: p.id,
+        slug: p.slug,
+        name: p.name,
+        emoji: p.emoji,
+        price: Number(p.price),
+        active: p.active,
+        available: mine.filter((i) => i.status === "available").length,
+        reserved: mine.filter((i) => i.status === "reserved").length,
+        delivered: mine.filter((i) => i.status === "delivered").length,
+      };
+    });
+  });
+
+export type ReferrerRow = {
+  id: string;
+  telegram_id: number;
+  username: string | null;
+  first_name: string | null;
+  referral_code: string | null;
+  referral_earned: number;
+  invited: number;
+};
+
+/** Referral leaderboard: who invited how many people and earned how much. */
+export const listReferrals = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<ReferrerRow[]> => {
+    await assertAdmin(context.userId);
+    const db = await admin();
+    const { data: users } = await db
+      .from("bot_users")
+      .select("id, telegram_id, username, first_name, referral_code, referral_earned, referred_by");
+    const rows = users ?? [];
+    return rows
+      .map((u) => ({
+        id: u.id,
+        telegram_id: u.telegram_id,
+        username: u.username,
+        first_name: u.first_name,
+        referral_code: u.referral_code,
+        referral_earned: Number(u.referral_earned ?? 0),
+        invited: rows.filter((r) => r.referred_by === u.id).length,
+      }))
+      .filter((u) => u.invited > 0 || u.referral_earned > 0)
+      .sort((a, b) => b.referral_earned - a.referral_earned || b.invited - a.invited)
+      .slice(0, 100);
+  });
+
+/** Live bot connection status: account, webhook target and pending updates. */
+export const getBotStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.userId);
+    const { telegramInfo } = await import("@/lib/telegram/gateway.server");
+    const me = (await telegramInfo("getMe")) as
+      | { result?: { username?: string; first_name?: string } }
+      | null;
+    const hook = (await telegramInfo("getWebhookInfo")) as
+      | {
+          result?: {
+            url?: string;
+            pending_update_count?: number;
+            last_error_message?: string;
+            last_error_date?: number;
+          };
+        }
+      | null;
+    return {
+      connected: Boolean(me?.result?.username),
+      username: me?.result?.username ?? null,
+      name: me?.result?.first_name ?? null,
+      webhookUrl: hook?.result?.url || null,
+      pendingUpdates: hook?.result?.pending_update_count ?? 0,
+      lastError: hook?.result?.last_error_message ?? null,
+    };
+  });
+
+/** Re-publishes the bot's command menu from the app's command list. */
+export const syncBotCommands = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.userId);
+    const { registerBotCommands } = await import("@/lib/telegram/commands.server");
+    const ok = await registerBotCommands();
+    if (!ok) throw new Error("Telegram did not accept the command list. Check the bot connection.");
+    return { message: "Bot command menu updated." };
+  });
