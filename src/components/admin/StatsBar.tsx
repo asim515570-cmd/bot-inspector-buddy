@@ -24,22 +24,22 @@ function Stat({
   accent?: boolean;
 }) {
   return (
-    <Card className="border-border/70 bg-card/80 shadow-none">
-      <CardContent className="flex items-center gap-3 p-4">
+    <Card className="border-border bg-card shadow-sm">
+      <CardContent className="flex min-h-24 items-center gap-3 p-4">
         <span
           className={
             accent
-              ? "flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary"
-              : "flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-muted-foreground"
+              ? "flex size-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"
+              : "flex size-10 shrink-0 items-center justify-center rounded-md bg-accent text-primary"
           }
         >
           <Icon className="size-4" />
         </span>
         <div className="min-w-0">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-xs font-medium text-muted-foreground">
             {label}
           </p>
-          <p className="font-display text-xl font-semibold leading-tight">{value}</p>
+          <p className="mt-1 font-display text-xl font-semibold leading-tight">{value}</p>
         </div>
       </CardContent>
     </Card>
@@ -52,7 +52,7 @@ export function StatsBar() {
   if (!data) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
       <Stat label="Products" value={`${data.activeProducts}/${data.products}`} icon={Package} />
       <Stat label="In stock" value={data.availableStock} icon={Layers} />
       <Stat label="Customers" value={data.customers} icon={Users} />
