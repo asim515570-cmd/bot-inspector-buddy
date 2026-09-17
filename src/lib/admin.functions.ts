@@ -120,7 +120,7 @@ export const saveProduct = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "product:save", 40);
     const db = await admin();
 
     if (data.active) {
@@ -150,11 +150,20 @@ export const saveProduct = createServerFn({ method: "POST" })
 
     if (data.id) {
       const { error } = await db.from("products").update(row).eq("id", data.id);
-      if (error) throw dbFail(error);
+      if (error) throw dbFail(error, "Could not save this product. Check the fields and try again.");
+      await audit(context, "product:update", `${data.slug} (${data.id})`);
       return { id: data.id };
     }
     const { data: created, error } = await db.from("products").insert(row).select("id").single();
-    if (error) throw new Error(error.message.includes("duplicate") ? "That slug is already used." : error.message);
+    if (error) {
+      throw dbFail(
+        error,
+        String((error as { message?: string }).message ?? "").includes("duplicate")
+          ? "That slug is already used by another product."
+          : "Could not create this product. Check the fields and try again.",
+      );
+    }
+    await audit(context, "product:create", `${data.slug} (${created.id})`);
     return { id: created.id };
   });
 
