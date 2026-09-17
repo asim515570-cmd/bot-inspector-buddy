@@ -229,34 +229,35 @@ export async function categoryScreen(
   const total = count ?? products.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const lines = [`🛍 <b>${esc(category)}</b>  <i>(page ${page + 1}/${pages})</i>`, ""];
+  const header = `🛒 <b>Choose Your Product:</b>\n<i>${esc(category)} · page ${page + 1}/${pages}</i>`;
   const buttons: InlineButton[][] = [];
   for (const p of products) {
     const stock = counts.get(p.id) ?? 0;
-    const badge = stock > 0 ? `${stock} in stock` : "out of stock";
-    const sale = effectivePrice(p) < Number(p.price) ? " 🔥" : "";
-    lines.push(
-      `${p.emoji ?? "•"} <b>${esc(p.name)}</b>${sale}\n   ${priceLabel(p)} · ${badge}`,
-    );
     buttons.push([
       {
-        text: `${p.emoji ? `${p.emoji} ` : ""}${p.name} — ${formatPrice(effectivePrice(p))}`,
+        text: `${p.emoji ? `${p.emoji} ` : ""}${p.name} | ${formatPrice(effectivePrice(p))} (${stock})`,
         callback_data: `product:${p.slug}`,
       },
     ]);
   }
 
-  const nav: InlineButton[] = [];
-  if (page > 0) nav.push({ text: "« Prev", callback_data: `cat:${categoryIndex}:${page - 1}` });
-  if (from + PAGE_SIZE < total)
-    nav.push({ text: "Next »", callback_data: `cat:${categoryIndex}:${page + 1}` });
-  if (nav.length) buttons.push(nav);
+  const self = `cat:${categoryIndex}:${page}`;
   buttons.push([
-    { text: "⬅️ Categories", callback_data: "shop" },
+    page > 0
+      ? { text: "Prev", callback_data: `cat:${categoryIndex}:${page - 1}` }
+      : { text: "·", callback_data: self },
+    { text: `${page + 1}/${pages}`, callback_data: self },
+    page + 1 < pages
+      ? { text: "Next", callback_data: `cat:${categoryIndex}:${page + 1}` }
+      : { text: "End", callback_data: self },
+  ]);
+  buttons.push([{ text: "🔄 Refresh", callback_data: self }]);
+  buttons.push([
+    { text: "⬅️ Back", callback_data: "shop" },
     { text: "🏠 Menu", callback_data: "menu" },
   ]);
 
-  await render(view, lines.join("\n"), buttons);
+  await render(view, header, buttons);
 }
 
 export async function productScreen(view: View, slug: string): Promise<void> {
