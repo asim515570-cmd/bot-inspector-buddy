@@ -232,6 +232,8 @@ export const OPS_COMMANDS = new Set([
   "/unban",
   "/stats",
   "/broadcast",
+  "/redeliver_pay",
+  "/backup",
 ]);
 
 async function findUserByTelegramId(tid: number) {
