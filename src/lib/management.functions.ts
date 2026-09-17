@@ -391,7 +391,9 @@ export const saveSettings = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await assertAdmin(context.userId);
     const db = await admin();
-    const rows = Object.entries(data).map(([key, value]) => ({ key, value }));
+    const rows = Object.entries(data)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => ({ key, value: value as string }));
     const { error } = await db.from("shop_settings").upsert(rows, { onConflict: "key" });
     if (error) throw new Error(error.message);
     return { message: "Settings saved." };
