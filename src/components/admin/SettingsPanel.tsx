@@ -22,6 +22,12 @@ export function SettingsPanel() {
   const [percent, setPercent] = useState("");
   const [minWithdraw, setMinWithdraw] = useState("");
   const [botUsername, setBotUsername] = useState("");
+  const [storeName, setStoreName] = useState("");
+  const [channelUrl, setChannelUrl] = useState("");
+  const [groupUrl, setGroupUrl] = useState("");
+  const [termsUrl, setTermsUrl] = useState("");
+  const [notice, setNotice] = useState("");
+  const [apiInfo, setApiInfo] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -33,6 +39,12 @@ export function SettingsPanel() {
     setPercent(settingsQuery.data["referral_percent"] ?? "");
     setMinWithdraw(settingsQuery.data["min_withdraw"] ?? "");
     setBotUsername(settingsQuery.data["bot_username"] ?? "");
+    setStoreName(settingsQuery.data["store_name"] ?? "");
+    setChannelUrl(settingsQuery.data["channel_url"] ?? "");
+    setGroupUrl(settingsQuery.data["group_url"] ?? "");
+    setTermsUrl(settingsQuery.data["terms_url"] ?? "");
+    setNotice(settingsQuery.data["notice"] ?? "");
+    setApiInfo(settingsQuery.data["api_info"] ?? "");
   }, [settingsQuery.data]);
 
   const onError = (e: unknown) => toast.error(e instanceof Error ? e.message : "Something went wrong.");
@@ -48,6 +60,12 @@ export function SettingsPanel() {
           referral_percent: percent,
           min_withdraw: minWithdraw,
           bot_username: botUsername,
+          store_name: storeName,
+          channel_url: channelUrl,
+          group_url: groupUrl,
+          terms_url: termsUrl,
+          notice: notice,
+          api_info: apiInfo,
         },
       }),
     onSuccess: (res) => toast.success(res.message),
