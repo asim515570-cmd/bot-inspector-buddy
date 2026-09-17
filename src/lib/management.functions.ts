@@ -347,6 +347,22 @@ export const updateCustomer = createServerFn({ method: "POST" })
     const { error } = await db.from("bot_users").update(patch).eq("id", data.id);
     if (error) throw new Error(error.message);
 
+    if (data.role) {
+      const { data: changedUser } = await db
+        .from("bot_users")
+        .select("telegram_id, role")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (changedUser) {
+        const { syncUserCommandScope } = await import("@/lib/telegram/commands.server");
+        const menuUpdated = await syncUserCommandScope(
+          Number(changedUser.telegram_id),
+          changedUser.role === "admin" ? "admin" : "customer",
+        );
+        if (!menuUpdated) throw new Error("Role changed, but Telegram did not update the command menu.");
+      }
+    }
+
     if (data.balanceDelta) {
       await db.from("wallet_transactions").insert({
         bot_user_id: data.id,

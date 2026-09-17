@@ -1,4 +1,5 @@
-import { setChatMenuButton, setMyCommands } from "./gateway.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { deleteMyCommands, setChatMenuButton, setMyCommands } from "./gateway.server";
 
 /**
  * The command list shown in Telegram's "Menu" button.
@@ -7,18 +8,14 @@ import { setChatMenuButton, setMyCommands } from "./gateway.server";
  * admins can discover them, but every one of them re-checks the caller's role
  * in the database before doing anything.
  */
-export const BOT_COMMANDS: { command: string; description: string }[] = [
-  // customer
+export const CUSTOMER_COMMANDS: { command: string; description: string }[] = [
   { command: "start", description: "Open the store" },
   { command: "menu", description: "Main menu" },
   { command: "help", description: "How the store works" },
-  { command: "orders", description: "My orders" },
-  { command: "balance", description: "My wallet balance" },
-  { command: "refer", description: "Referral link & earnings" },
-  { command: "withdraw", description: "Request a payout" },
-  { command: "pay", description: "Submit a payment reference" },
-  { command: "support", description: "Contact support" },
-  // admin
+];
+
+export const ADMIN_COMMANDS: { command: string; description: string }[] = [
+  ...CUSTOMER_COMMANDS,
   { command: "admin", description: "Admin: all admin commands" },
   { command: "products", description: "Admin: list products" },
   { command: "addproduct", description: "Admin: slug|Name|emoji|price" },
@@ -49,9 +46,37 @@ export const BOT_COMMANDS: { command: string; description: string }[] = [
   { command: "backup", description: "Admin: data snapshot" },
 ];
 
-/** Pushes the command list to Telegram. Safe to call repeatedly. */
+/** Applies or removes a private, chat-specific admin command menu. */
+export async function syncUserCommandScope(
+  telegramId: number,
+  role: "admin" | "customer",
+): Promise<boolean> {
+  const scope = { type: "chat" as const, chat_id: telegramId };
+  if (role === "admin") return await setMyCommands(ADMIN_COMMANDS, scope);
+  return await deleteMyCommands(scope);
+}
+
+/** Publishes three customer commands globally and admin commands only to current admins. */
 export async function registerBotCommands(): Promise<boolean> {
-  const commandsReady = await setMyCommands(BOT_COMMANDS);
-  if (!commandsReady) return false;
+  const defaultReady = await setMyCommands(CUSTOMER_COMMANDS, { type: "default" });
+  const privateReady = await setMyCommands(CUSTOMER_COMMANDS, { type: "all_private_chats" });
+  if (!defaultReady || !privateReady) return false;
+
+  const { data: users, error } = await supabaseAdmin
+    .from("bot_users")
+    .select("telegram_id, role");
+  if (error) {
+    console.error(`[telegram] command scope lookup failed: ${error.message}`);
+    return false;
+  }
+
+  for (const user of users ?? []) {
+    const ready = await syncUserCommandScope(
+      Number(user.telegram_id),
+      user.role === "admin" ? "admin" : "customer",
+    );
+    if (!ready) return false;
+  }
+
   return await setChatMenuButton();
 }
