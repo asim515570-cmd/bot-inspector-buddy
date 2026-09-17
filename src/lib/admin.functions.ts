@@ -198,7 +198,7 @@ export const addStock = createServerFn({ method: "POST" })
     z.object({ productId: z.string().uuid(), payloads: z.string().min(1).max(50_000) }).parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "stock:add", 30);
     const lines = data.payloads
       .split("\n")
       .map((l) => l.trim())
@@ -209,7 +209,9 @@ export const addStock = createServerFn({ method: "POST" })
     const { error } = await db
       .from("stock_items")
       .insert(lines.map((payload) => ({ product_id: data.productId, payload, status: "available" as const })));
-    if (error) throw dbFail(error);
+    if (error) throw dbFail(error, "Could not add these stock items. Please try again.");
+    // Codes themselves are never written to the audit trail.
+    await audit(context, "stock:add", `${lines.length} item(s) → ${data.productId}`);
     return { added: lines.length };
   });
 
