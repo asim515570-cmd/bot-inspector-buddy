@@ -49,3 +49,5 @@ Do not copy the original project's source or exact wording.
 - [x] Match reference colors and density: blue product/navigation buttons, green Refresh, 15 products per page
 
 - [x] Remove category selection from every live bot and website shop entry point
+
+- [x] Enable Telegram’s permanent chat Menu button and re-sync bot commands
