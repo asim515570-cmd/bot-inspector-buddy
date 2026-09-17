@@ -89,6 +89,14 @@ export async function setMyCommands(
   return Boolean(res?.ok);
 }
 
+/** Keeps Telegram's permanent Menu button visible beside the message field. */
+export async function setChatMenuButton(): Promise<boolean> {
+  const res = (await callTelegram("setChatMenuButton", {
+    menu_button: { type: "commands" },
+  })) as { ok?: boolean } | null;
+  return Boolean(res?.ok);
+}
+
 export async function answerCallbackQuery(
   callbackQueryId: string,
   text?: string,

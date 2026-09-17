@@ -50,4 +50,4 @@ Do not copy the original project's source or exact wording.
 
 - [x] Remove category selection from every live bot and website shop entry point
 
-- [ ] Enable Telegram’s permanent chat Menu button and re-sync bot commands
+- [x] Enable Telegram’s permanent chat Menu button and re-sync bot commands

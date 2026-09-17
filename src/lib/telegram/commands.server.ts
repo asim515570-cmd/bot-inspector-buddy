@@ -1,4 +1,4 @@
-import { setMyCommands } from "./gateway.server";
+import { setChatMenuButton, setMyCommands } from "./gateway.server";
 
 /**
  * The command list shown in Telegram's "Menu" button.
@@ -51,5 +51,7 @@ export const BOT_COMMANDS: { command: string; description: string }[] = [
 
 /** Pushes the command list to Telegram. Safe to call repeatedly. */
 export async function registerBotCommands(): Promise<boolean> {
-  return await setMyCommands(BOT_COMMANDS);
+  const commandsReady = await setMyCommands(BOT_COMMANDS);
+  if (!commandsReady) return false;
+  return await setChatMenuButton();
 }
