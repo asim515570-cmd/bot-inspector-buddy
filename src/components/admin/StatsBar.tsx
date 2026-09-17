@@ -36,7 +36,7 @@ function Stat({
           <Icon className="size-4" />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {label}
           </p>
           <p className="font-display text-xl font-semibold leading-tight">{value}</p>
