@@ -402,8 +402,8 @@ async function handleAdminCommand(
   const args = firstLine.trim().split(/\s+/).filter(Boolean);
   const slug = args[0] ?? "";
 
-  const needsSlug = command !== "/addproduct";
-  if (needsSlug && !isValidSlug(slug)) {
+  const noSlug = new Set(["/addproduct", "/admin", "/products", "/flashsales"]);
+  if (!noSlug.has(command) && !isValidSlug(slug)) {
     await sendMessage(
       chatId,
       "❌ Invalid slug. Use 2-32 characters: lowercase letters, numbers, - or _.",
@@ -412,6 +412,104 @@ async function handleAdminCommand(
   }
 
   switch (command) {
+    case "/admin": {
+      await sendMessage(chatId, ADMIN_HELP, undefined, true);
+      return;
+    }
+    case "/products": {
+      const { data: rows } = await supabaseAdmin
+        .from("products")
+        .select("slug, name, emoji, price, sale_price, sale_ends_at, active, category")
+        .order("category")
+        .order("sort_order")
+        .limit(100);
+      const { data: stock } = await supabaseAdmin
+        .from("stock_items")
+        .select("product_id, status");
+      void stock;
+      if (!rows || rows.length === 0) {
+        await sendMessage(chatId, "No products yet. Use /addproduct.");
+        return;
+      }
+      const lines = rows.map((p) => {
+        const live =
+          p.sale_price && (!p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now());
+        const price = live ? `${formatPrice(Number(p.sale_price))} 🔥` : formatPrice(Number(p.price));
+        return `${p.active ? "🟢" : "⚪️"} <code>${p.slug}</code> — ${p.emoji ?? ""} ${p.name} · ${price} · ${p.category}`;
+      });
+      await sendMessage(chatId, ["📦 <b>Products</b>", "", ...lines].join("\n"), undefined, true);
+      return;
+    }
+    case "/flashsale": {
+      const salePrice = parsePrice(args[1] ?? "");
+      const hours = Number(args[2]);
+      if (salePrice === null || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 90) {
+        await sendMessage(chatId, "Usage: /flashsale slug 4.99 12   (sale price, then hours)");
+        return;
+      }
+      const { data: product } = await supabaseAdmin
+        .from("products")
+        .select("id, name, price")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!product) {
+        await sendMessage(chatId, "❌ No product with that slug.");
+        return;
+      }
+      if (salePrice >= Number(product.price)) {
+        await sendMessage(chatId, "❌ The sale price must be lower than the normal price.");
+        return;
+      }
+      const endsAt = new Date(Date.now() + hours * 3600_000).toISOString();
+      await supabaseAdmin
+        .from("products")
+        .update({ sale_price: salePrice, sale_ends_at: endsAt })
+        .eq("id", product.id);
+      await sendMessage(
+        chatId,
+        `🔥 Flash sale on ${product.name}: ${formatPrice(salePrice)} for ${hours}h (ends ${endsAt.slice(0, 16).replace("T", " ")} UTC).`,
+      );
+      return;
+    }
+    case "/flashsales": {
+      const { data: rows } = await supabaseAdmin
+        .from("products")
+        .select("slug, name, price, sale_price, sale_ends_at")
+        .not("sale_price", "is", null)
+        .limit(100);
+      const live = (rows ?? []).filter(
+        (p) =>
+          Number(p.sale_price) > 0 &&
+          Number(p.sale_price) < Number(p.price) &&
+          (!p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now()),
+      );
+      if (live.length === 0) {
+        await sendMessage(chatId, "No flash sales are running.");
+        return;
+      }
+      await sendMessage(
+        chatId,
+        [
+          "🔥 <b>Flash sales</b>",
+          "",
+          ...live.map(
+            (p) =>
+              `<code>${p.slug}</code> — ${p.name}: ${formatPrice(Number(p.sale_price))} (was ${formatPrice(Number(p.price))})${p.sale_ends_at ? ` · ends ${String(p.sale_ends_at).slice(0, 16).replace("T", " ")} UTC` : " · no end time"}`,
+          ),
+        ].join("\n"),
+        undefined,
+        true,
+      );
+      return;
+    }
+    case "/stopflashsale": {
+      const { error } = await supabaseAdmin
+        .from("products")
+        .update({ sale_price: null, sale_ends_at: null })
+        .eq("slug", slug);
+      await sendMessage(chatId, error ? `❌ ${error.message}` : `✅ Flash sale stopped for ${slug}.`);
+      return;
+    }
     case "/addproduct": {
       const parts = rest.trim().split("|").map((p) => p.trim());
       if (parts.length !== 4) {
