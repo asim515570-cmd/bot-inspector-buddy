@@ -315,11 +315,19 @@ function AdminPage() {
               disabled={saveMutation.isPending}
               onClick={() => {
                 if (!draft) return;
-                if (!draft.name.trim()) return toast.error("Enter a product name.");
-                if (!/^[a-z0-9][a-z0-9_-]{1,31}$/.test(draft.slug.trim().toLowerCase()))
-                  return toast.error("Short code: 2–32 characters, lowercase letters, numbers, - or _.");
+                if (!draft.name.trim()) {
+                  toast.error("Enter a product name.");
+                  return;
+                }
+                if (!/^[a-z0-9][a-z0-9_-]{1,31}$/.test(draft.slug.trim().toLowerCase())) {
+                  toast.error("Short code: 2–32 characters, lowercase letters, numbers, - or _.");
+                  return;
+                }
                 const price = Number(draft.price);
-                if (!Number.isFinite(price) || price <= 0) return toast.error("Enter a price greater than zero.");
+                if (!Number.isFinite(price) || price <= 0) {
+                  toast.error("Enter a price greater than zero.");
+                  return;
+                }
                 saveMutation.mutate(draft);
               }}
             >
@@ -342,7 +350,10 @@ function AdminPage() {
               disabled={addStockMutation.isPending}
               onClick={() => {
                 if (!stockFor) return;
-                if (!stockText.trim()) return toast.error("Enter at least one item.");
+                if (!stockText.trim()) {
+                  toast.error("Enter at least one item.");
+                  return;
+                }
                 addStockMutation.mutate({ productId: stockFor.id, payloads: stockText });
               }}
             >
