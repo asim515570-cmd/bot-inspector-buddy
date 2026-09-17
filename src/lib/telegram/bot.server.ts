@@ -329,6 +329,8 @@ async function cancelOrder(view: View, user: BotUser, shortId: string): Promise<
 // ------------------------------------------------------------------- admin
 
 const ADMIN_COMMANDS = new Set([
+  "/admin",
+  "/products",
   "/addproduct",
   "/setprice",
   "/setactive",
@@ -338,7 +340,39 @@ const ADMIN_COMMANDS = new Set([
   "/addstock",
   "/stock",
   "/clearstock",
+  "/flashsale",
+  "/flashsales",
+  "/stopflashsale",
 ]);
+
+const ADMIN_HELP = [
+  "🛠 <b>Admin commands</b>",
+  "",
+  "<b>Catalog</b>",
+  "/products — list every product",
+  "/addproduct slug|Name|emoji|price",
+  "/setprice slug 24.99",
+  "/setactive slug on|off",
+  "/setdesc slug Description…",
+  "/setemoji slug &lt;id|clear&gt;",
+  "/delproduct slug confirm",
+  "",
+  "<b>Flash sales</b>",
+  "/flashsale slug sale_price hours",
+  "/flashsales — list running sales",
+  "/stopflashsale slug",
+  "",
+  "<b>Stock</b>",
+  "/addstock slug (then one code per line)",
+  "/stock slug",
+  "/clearstock slug confirm",
+  "",
+  "<b>Orders &amp; money</b>",
+  "/payments · /approve_pay ID · /reject_pay ID reason · /redeliver_pay ID",
+  "/withdrawals · /approve_wd ID · /reject_wd ID reason",
+  "/whois USER_ID · /credit USER_ID 10 · /debit USER_ID 5",
+  "/ban USER_ID · /unban USER_ID · /broadcast message · /backup",
+].join("\n");
 
 async function handleAdminCommand(
   command: string,
