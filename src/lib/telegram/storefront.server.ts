@@ -277,6 +277,7 @@ export async function productScreen(view: View, slug: string): Promise<void> {
 
   const counts = await stockCounts([product.id]);
   const stock = counts.get(product.id) ?? 0;
+  const sold = await soldCount(product.id);
   const now = effectivePrice(product);
   const base = Number(product.price);
   const categories = await listCategories();
@@ -284,32 +285,221 @@ export async function productScreen(view: View, slug: string): Promise<void> {
 
   const lines = [
     `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
-    `<i>${esc(product.category)}</i>`,
-    "",
-    product.description ? esc(product.description) : "",
-    "",
     now < base
-      ? `💵 Price: <b>${formatPrice(now)}</b>  <s>${formatPrice(base)}</s>  🔥 ${Math.round(((base - now) / base) * 100)}% off`
-      : `💵 Price: <b>${formatPrice(now)}</b>`,
-    stock > 0 ? `📦 Available: <b>${stock}</b>` : "📦 <b>Out of stock</b>",
-    product.delivery_note ? `🚚 ${esc(product.delivery_note)}` : "",
-  ].filter((l) => l !== "");
+      ? `💰 Price: <b>${formatPrice(now)}</b> / code  <s>${formatPrice(base)}</s>  🔥 ${Math.round(((base - now) / base) * 100)}% off`
+      : `💰 Price: <b>${formatPrice(now)}</b> / code`,
+    `📦 Stock: <b>${stock}</b>`,
+    `📈 Sold: <b>${sold}</b>`,
+  ];
+  if (product.description) lines.push("", `<blockquote>${esc(product.description)}</blockquote>`);
+  if (product.delivery_note)
+    lines.push(
+      "",
+      "Delivery instructions:",
+      `<blockquote>${esc(product.delivery_note)}</blockquote>`,
+    );
+  lines.push("", "<i>Delivery is automatic after payment confirmation.</i>");
 
   const buy: InlineButton[] =
     stock > 0
-      ? [{ text: `🛒 Buy — ${formatPrice(now)}`, callback_data: `buy:${product.slug}` }]
+      ? [{ text: "🛒 Buy Now", callback_data: `buy:${product.slug}` }]
       : [{ text: "🔕 Out of stock", callback_data: "shop" }];
 
   await render(view, lines.join("\n"), [
     buy,
     [
       {
-        text: "⬅️ Back",
+        text: "⬅️ Back to Store",
         callback_data: categoryIndex >= 0 ? `cat:${categoryIndex}:0` : "shop",
       },
-      { text: "🏠 Menu", callback_data: "menu" },
+      { text: "🏠 Main Menu", callback_data: "menu" },
     ],
   ]);
+}
+
+// --------------------------------------------------------------- checkout UI
+
+/** Payment methods, configured from the dashboard as "Label | instructions" lines. */
+export async function paymentMethods(): Promise<{ label: string; instructions: string }[]> {
+  const raw = await setting("payment_methods", "");
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [label, ...rest] = line.split("|");
+      return {
+        label: (label ?? "").trim() || "Payment",
+        instructions: rest.join("|").trim(),
+      };
+    })
+    .slice(0, 10);
+}
+
+const QUANTITIES = [1, 2, 3, 5, 10, 15, 20, 25];
+
+export async function quantityScreen(view: View, slug: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("products")
+    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note, active")
+    .eq("slug", slug)
+    .maybeSingle();
+  const product = data as (ProductRow & { active: boolean }) | null;
+  if (!product || !product.active) {
+    await render(view, "❌ <b>That product is not available.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const stock = (await stockCounts([product.id])).get(product.id) ?? 0;
+  if (stock === 0) {
+    await render(view, "😔 <b>That product just sold out.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const price = effectivePrice(product);
+  const options = QUANTITIES.filter((q) => q <= stock);
+  if (options.length === 0) options.push(stock);
+
+  const rows: InlineButton[][] = [];
+  for (let i = 0; i < options.length; i += 4) {
+    rows.push(
+      options.slice(i, i + 4).map((q) => ({
+        text: String(q),
+        callback_data: `qty:${product.slug}:${q}`,
+      })),
+    );
+  }
+  if (stock > 1 && !options.includes(stock))
+    rows.push([{ text: `Max (${stock})`, callback_data: `qty:${product.slug}:${stock}` }]);
+  rows.push([
+    { text: "⬅️ Back", callback_data: `product:${product.slug}` },
+    { text: "🏠 Main Menu", callback_data: "menu" },
+  ]);
+
+  await render(
+    view,
+    [
+      "🧮 <b>Select Quantity</b>",
+      "",
+      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+      `${formatPrice(price)} / code · ${stock} in stock`,
+      "",
+      "How many codes do you want?",
+    ].join("\n"),
+    rows,
+  );
+}
+
+export async function summaryScreen(
+  view: View,
+  user: ShopUser,
+  slug: string,
+  qty: number,
+): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("products")
+    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note, active")
+    .eq("slug", slug)
+    .maybeSingle();
+  const product = data as (ProductRow & { active: boolean }) | null;
+  if (!product || !product.active) {
+    await render(view, "❌ <b>That product is not available.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const stock = (await stockCounts([product.id])).get(product.id) ?? 0;
+  if (qty > stock) {
+    await render(view, `😔 <b>Only ${stock} left.</b> Pick a smaller quantity.`, [
+      [{ text: "⬅️ Back", callback_data: `buy:${product.slug}` }],
+    ]);
+    return;
+  }
+  const price = effectivePrice(product);
+  const total = price * qty;
+  const { data: me } = await supabaseAdmin
+    .from("bot_users")
+    .select("balance")
+    .eq("id", user.id)
+    .maybeSingle();
+  const balance = Number(me?.balance ?? 0);
+
+  const rows: InlineButton[][] = [];
+  if (balance >= total)
+    rows.push([
+      { text: `💵 Pay from balance (${formatPrice(balance)})`, callback_data: `paybal:${slug}:${qty}` },
+    ]);
+  rows.push([{ text: "💳 Choose payment method", callback_data: `pm:${slug}:${qty}` }]);
+  rows.push([
+    { text: "⬅️ Back", callback_data: `buy:${slug}` },
+    { text: "🚫 Cancel", callback_data: `product:${slug}` },
+  ]);
+
+  await render(
+    view,
+    [
+      "🧾 <b>Order Summary</b>",
+      "",
+      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+      `🔢 Qty: <b>${qty}</b>`,
+      `💰 Price: <b>${formatPrice(price)}</b> each`,
+      `🧮 Total: <b>${formatPrice(total)}</b>`,
+      "",
+      `👛 Your balance: ${formatPrice(balance)}`,
+      "",
+      "Choose a payment method:",
+    ].join("\n"),
+    rows,
+  );
+}
+
+export async function methodsScreen(view: View, slug: string, qty: number): Promise<void> {
+  const methods = await paymentMethods();
+  const { data } = await supabaseAdmin
+    .from("products")
+    .select("name, emoji, price, sale_price")
+    .eq("slug", slug)
+    .maybeSingle();
+  const product = data as
+    | { name: string; emoji: string | null; price: number | string; sale_price: number | string | null }
+    | null;
+  if (!product) {
+    await render(view, "❌ <b>That product is not available.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const total = effectivePrice(product) * qty;
+
+  if (methods.length === 0) {
+    await render(
+      view,
+      "💳 <b>No payment methods are set up yet.</b>\n\nPlease contact support to complete this order.",
+      [[{ text: "🆘 Support", callback_data: "support" }], [{ text: "🏠 Main Menu", callback_data: "menu" }]],
+    );
+    return;
+  }
+
+  const rows: InlineButton[][] = methods.map((m, index) => [
+    { text: `💠 ${m.label}`, callback_data: `pmx:${slug}:${qty}:${index}` },
+  ]);
+  rows.push([
+    { text: "⬅️ Back", callback_data: `qty:${slug}:${qty}` },
+    { text: "🚫 Cancel Order", callback_data: `product:${slug}` },
+  ]);
+
+  await render(
+    view,
+    [
+      "💳 <b>Select Payment Method</b>",
+      "",
+      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b> × ${qty}`,
+      `Total: <b>${formatPrice(total)}</b>`,
+    ].join("\n"),
+    rows,
+  );
 }
 
 export async function ordersScreen(view: View, user: ShopUser): Promise<void> {
