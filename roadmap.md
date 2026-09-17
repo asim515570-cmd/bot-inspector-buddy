@@ -1,7 +1,8 @@
 # Telegram storefront bot — roadmap
 
-Reference: uploaded blueprint (dodi-store-bot-blueprint.md) — rebuild the generic
-e-commerce-bot pattern, not the original source.
+Reference: uploaded blueprint (dodi-store-bot-blueprint.md) — used as an idea only.
+Goal: build the whole system A to Z and make it better than the reference.
+Do not copy the original project's source or exact wording.
 
 - [x] Step 1 — Secure webhook foundation (secret-token check, connector gateway, update log)
 - [x] Step 2 — Data model: bot_users, products, stock_items, orders
