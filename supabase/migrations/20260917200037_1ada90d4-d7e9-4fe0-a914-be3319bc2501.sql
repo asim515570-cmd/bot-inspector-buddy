@@ -1,0 +1,1 @@
+CREATE POLICY "No client access to telegram updates" ON public.telegram_updates FOR SELECT TO authenticated, anon USING (false);
