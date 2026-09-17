@@ -314,7 +314,10 @@ export async function categoriesScreen(view: View, page = 0): Promise<void> {
       : { text: "End", callback_data: self },
   ]);
   buttons.push([{ text: "🔄 Refresh", callback_data: self }]);
-  buttons.push([{ text: "🏠 Menu", callback_data: "menu" }]);
+  buttons.push([
+    { text: "⬅️ Back", callback_data: "menu" },
+    { text: "🏠 Menu", callback_data: "menu" },
+  ]);
   await render(view, lines.join("\n"), buttons);
 }
 
