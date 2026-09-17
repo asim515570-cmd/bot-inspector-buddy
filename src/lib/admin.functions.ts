@@ -171,7 +171,7 @@ export const deleteProduct = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "product:delete", 20);
     const db = await admin();
     const { count } = await db
       .from("stock_items")
@@ -181,12 +181,14 @@ export const deleteProduct = createServerFn({ method: "POST" })
 
     if ((count ?? 0) > 0) {
       const { error } = await db.from("products").update({ active: false }).eq("id", data.id);
-      if (error) throw dbFail(error);
+      if (error) throw dbFail(error, "Could not hide this product. Please try again.");
+      await audit(context, "product:hide", data.id);
       return { deleted: false as const, message: "This product has sold or reserved stock, so it was hidden instead of deleted." };
     }
     await db.from("stock_items").delete().eq("product_id", data.id).eq("status", "available");
     const { error } = await db.from("products").delete().eq("id", data.id);
-    if (error) throw dbFail(error);
+    if (error) throw dbFail(error, "Could not delete this product. Please try again.");
+    await audit(context, "product:delete", data.id);
     return { deleted: true as const, message: "Product deleted." };
   });
 
