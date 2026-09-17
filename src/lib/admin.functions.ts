@@ -19,6 +19,12 @@ export type AdminProduct = {
   stock: { available: number; reserved: number; delivered: number };
 };
 
+type Ctx = { userId: string; claims?: unknown };
+
+async function security() {
+  return import("@/lib/security.server");
+}
+
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
@@ -26,29 +32,29 @@ async function admin() {
 
 /**
  * Verifies the caller holds the admin role, reading it fresh from the database
- * on every call. Bootstraps the very first signed-in account as admin when no
- * admin exists yet.
+ * on every call. There is no self-service bootstrap: roles are only granted by
+ * an existing administrator.
  */
-async function assertAdmin(userId: string) {
-  const db = await admin();
-  const { data: mine } = await db
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (mine) return;
+async function assertAdmin(context: Ctx) {
+  await (await security()).assertAdmin(context);
+}
 
-  const { count } = await db
-    .from("user_roles")
-    .select("id", { count: "exact", head: true })
-    .eq("role", "admin");
+async function assertAdminAction(context: Ctx, action: string, limit = 30) {
+  await (await security()).assertAdminAction(context, action, { limit });
+}
 
-  if ((count ?? 0) === 0) {
-    const { error } = await db.from("user_roles").insert({ user_id: userId, role: "admin" });
-    if (!error) return;
-  }
-  throw new Error("Not authorized. This account is not an administrator.");
+async function audit(context: Ctx, action: string, detail?: string) {
+  const s = await security();
+  await s.logActivity(s.actorOf(context), action, detail);
+}
+
+function dbFail(error: unknown, friendly = "Something went wrong. Please try again."): Error {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+  console.error(`[db] ${message}`);
+  return new Error(friendly);
 }
 
 const slug = z.string().trim().toLowerCase().regex(SLUG_PATTERN, "Invalid slug");

@@ -9,35 +9,43 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+type Ctx = { userId: string; claims?: unknown };
+
+async function security() {
+  return import("@/lib/security.server");
+}
+
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
 }
 
-async function assertAdmin(userId: string) {
-  const db = await admin();
-  const { data } = await db
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (!data) throw new Error("Not authorized. This account is not an administrator.");
+/** Re-reads the caller's admin role from the database on every single call. */
+async function assertAdmin(context: Ctx) {
+  await (await security()).assertAdmin(context);
 }
 
-/** Records an admin action for the dashboard activity feed. Never throws. */
+/** Admin check plus a tighter rate limit for state-changing actions. */
+async function assertAdminAction(context: Ctx, action: string, limit = 30) {
+  await (await security()).assertAdminAction(context, action, { limit });
+}
+
 async function logActivity(actor: string, action: string, detail?: string) {
-  try {
-    const db = await admin();
-    await db.from("admin_activity").insert({ actor, action, detail: detail ?? null });
-  } catch {
-    // The audit trail must never break the action it describes.
-  }
+  await (await security()).logActivity(actor, action, detail);
 }
 
-function actorOf(context: { userId: string; claims?: unknown }) {
+function actorOf(context: Ctx) {
   const claims = context.claims as { email?: string } | undefined;
   return claims?.email ?? context.userId;
+}
+
+function dbFail(error: unknown, friendly = "Something went wrong. Please try again."): Error {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+  console.error(`[db] ${message}`);
+  return new Error(friendly);
 }
 
 export type OrderRow = {
