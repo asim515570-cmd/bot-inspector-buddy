@@ -22,7 +22,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WithdrawalsPanel } from "@/components/admin/WithdrawalsPanel";
 import { StatsBar } from "@/components/admin/StatsBar";
 import { OrdersPanel } from "@/components/admin/OrdersPanel";
@@ -31,6 +30,8 @@ import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { StockPanel } from "@/components/admin/StockPanel";
 import { ReferralsPanel } from "@/components/admin/ReferralsPanel";
 import { BotPanel } from "@/components/admin/BotPanel";
+import { AdminShell, type AdminSection } from "@/components/admin/AdminShell";
+import { Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -84,6 +85,17 @@ const emptyDraft: Draft = {
   active: false,
 };
 
+const SECTION_META: Record<AdminSection, { title: string; description: string }> = {
+  products: { title: "Products", description: "Catalogue shown inside your Telegram shop." },
+  stock: { title: "Stock", description: "Codes available, reserved and delivered per product." },
+  orders: { title: "Orders", description: "Confirm payments and deliver orders." },
+  customers: { title: "Customers", description: "Balances, roles and access." },
+  referrals: { title: "Referrals", description: "Who invited whom and what they earned." },
+  payouts: { title: "Payouts", description: "Approve or reject withdrawal requests." },
+  bot: { title: "Bot", description: "Connection status and bot menu." },
+  settings: { title: "Settings", description: "Shop texts, payment options and links." },
+};
+
 function AdminPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -96,6 +108,7 @@ function AdminPage() {
   const removeStockItem = useServerFn(deleteStockItem);
   const clearStock = useServerFn(clearAvailableStock);
 
+  const [section, setSection] = useState<AdminSection>("products");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stockFor, setStockFor] = useState<AdminProduct | null>(null);
   const [stockText, setStockText] = useState("");
@@ -214,124 +227,110 @@ function AdminPage() {
 
   const products = productsQuery.data ?? [];
 
-  return (
-    <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Shop management</h1>
-          <p className="text-sm text-muted-foreground">Everything here is live in your Telegram shop.</p>
-        </div>
-        <Button variant="ghost" onClick={signOut}>
-          Sign out
-        </Button>
-      </header>
+  const meta = SECTION_META[section];
 
+  return (
+    <AdminShell
+      section={section}
+      onSection={setSection}
+      onSignOut={signOut}
+      title={meta.title}
+      description={meta.description}
+      actions={
+        section === "products" ? (
+          <Button onClick={() => setDraft({ ...emptyDraft })}>
+            <Plus className="size-4" /> Add product
+          </Button>
+        ) : null
+      }
+    >
       <StatsBar />
 
-      <Tabs defaultValue="products">
-        <TabsList className="mb-4">
-          <TabsTrigger value="products">Products</TabsTrigger>
-          <TabsTrigger value="stock">Stock</TabsTrigger>
-          <TabsTrigger value="orders">Orders</TabsTrigger>
-          <TabsTrigger value="customers">Customers</TabsTrigger>
-          <TabsTrigger value="referrals">Referrals</TabsTrigger>
-          <TabsTrigger value="payouts">Payouts</TabsTrigger>
-          <TabsTrigger value="bot">Bot</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
+      {section === "stock" && <StockPanel />}
+      {section === "orders" && <OrdersPanel />}
+      {section === "customers" && <CustomersPanel />}
+      {section === "referrals" && <ReferralsPanel />}
+      {section === "payouts" && <WithdrawalsPanel />}
+      {section === "bot" && <BotPanel />}
+      {section === "settings" && <SettingsPanel />}
 
-        <TabsContent value="stock">
-          <StockPanel />
-        </TabsContent>
-        <TabsContent value="orders">
-          <OrdersPanel />
-        </TabsContent>
-        <TabsContent value="customers">
-          <CustomersPanel />
-        </TabsContent>
-        <TabsContent value="referrals">
-          <ReferralsPanel />
-        </TabsContent>
-        <TabsContent value="payouts">
-          <WithdrawalsPanel />
-        </TabsContent>
-        <TabsContent value="bot">
-          <BotPanel />
-        </TabsContent>
-        <TabsContent value="settings">
-          <SettingsPanel />
-        </TabsContent>
+      {section === "products" && (
+        <div className="space-y-4">
+          {productsQuery.isLoading && <p className="text-muted-foreground">Loading products…</p>}
+          {!productsQuery.isLoading && products.length === 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>No products yet</CardTitle>
+                <CardDescription>Add your first product, then add stock so customers can see it.</CardDescription>
+              </CardHeader>
+            </Card>
+          )}
 
-        <TabsContent value="products">
-      <div className="mb-4">
-        <Button onClick={() => setDraft({ ...emptyDraft })}>Add product</Button>
-      </div>
-
-      {productsQuery.isLoading && <p className="text-muted-foreground">Loading products…</p>}
-      {!productsQuery.isLoading && products.length === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>No products yet</CardTitle>
-            <CardDescription>Add your first product, then add stock so customers can see it.</CardDescription>
-          </CardHeader>
-        </Card>
+          <div className="grid gap-3">
+            {products.map((p) => (
+              <Card key={p.id} className="border-border/70 transition-colors hover:border-primary/40">
+                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-lg">
+                      {p.emoji ?? "📦"}
+                    </span>
+                    <div className="min-w-0">
+                      <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                        {p.name}
+                        <Badge variant={p.active ? "default" : "secondary"}>
+                          {p.active ? "Visible" : "Hidden"}
+                        </Badge>
+                        <Badge variant="outline">{p.category}</Badge>
+                      </CardTitle>
+                      <CardDescription className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <span className="font-medium text-foreground">{p.price.toFixed(2)}</span>
+                        <span>{p.slug}</span>
+                        <span>{p.stock.available} available</span>
+                        <span>{p.stock.reserved} reserved</span>
+                        <span>{p.stock.delivered} delivered</span>
+                      </CardDescription>
+                      {p.description && (
+                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{p.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setDraft({
+                          id: p.id,
+                          slug: p.slug,
+                          name: p.name,
+                          emoji: p.emoji ?? "",
+                          description: p.description ?? "",
+                          price: String(p.price),
+                          salePrice: p.sale_price === null ? "" : String(p.sale_price),
+                          saleEndsAt: p.sale_ends_at ? p.sale_ends_at.slice(0, 16) : "",
+                          category: p.category,
+                          deliveryNote: p.delivery_note ?? "",
+                          sortOrder: String(p.sort_order),
+                          active: p.active,
+                        })
+                      }
+                    >
+                      Edit
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => { setStockFor(p); setStockText(""); }}>
+                      Stock
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmDelete(p)}>
+                      Delete
+                    </Button>
+                  </div>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </div>
       )}
 
-      <div className="grid gap-4">
-        {products.map((p) => (
-          <Card key={p.id}>
-            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <span>{p.emoji ?? "📦"}</span>
-                  {p.name}
-                  <Badge variant={p.active ? "default" : "secondary"}>{p.active ? "Visible" : "Hidden"}</Badge>
-                </CardTitle>
-                <CardDescription>
-                  {p.slug} · {p.price.toFixed(2)} · {p.stock.available} available, {p.stock.reserved} reserved,{" "}
-                  {p.stock.delivered} delivered
-                </CardDescription>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setDraft({
-                      id: p.id,
-                      slug: p.slug,
-                      name: p.name,
-                      emoji: p.emoji ?? "",
-                      description: p.description ?? "",
-                      price: String(p.price),
-                      salePrice: p.sale_price === null ? "" : String(p.sale_price),
-                      saleEndsAt: p.sale_ends_at ? p.sale_ends_at.slice(0, 16) : "",
-                      category: p.category,
-                      deliveryNote: p.delivery_note ?? "",
-                      sortOrder: String(p.sort_order),
-                      active: p.active,
-                    })
-                  }
-                >
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => { setStockFor(p); setStockText(""); }}>
-                  Stock
-                </Button>
-                <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(p)}>
-                  Delete
-                </Button>
-              </div>
-            </CardHeader>
-            {p.description && (
-              <CardContent className="pt-0 text-sm text-muted-foreground">{p.description}</CardContent>
-            )}
-          </Card>
-        ))}
-      </div>
-
-        </TabsContent>
-      </Tabs>
 
       {/* Product editor */}
       <Dialog open={!!draft} onOpenChange={(o) => !o && setDraft(null)}>
@@ -540,6 +539,6 @@ function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </main>
+    </AdminShell>
   );
 }
