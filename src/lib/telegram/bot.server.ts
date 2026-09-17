@@ -194,7 +194,7 @@ async function startCheckout(
     .maybeSingle();
   const balance = Number(me?.balance ?? 0);
 
-  if (balance >= price) {
+  if (methodIndex === undefined && balance >= price) {
     const next = balance - price;
     await supabaseAdmin.from("bot_users").update({ balance: next }).eq("id", user.id);
     await supabaseAdmin.from("wallet_transactions").insert({
@@ -255,23 +255,70 @@ async function startCheckout(
     return;
   }
 
-  const instructions = await setting(
-    "payment_instructions",
-    "Send payment and reply with your transaction reference. An admin will confirm it shortly.",
-  );
-  await sendMessage(
-    chatId,
+  const methods = await paymentMethods();
+  const chosen = methodIndex === undefined ? undefined : methods[methodIndex];
+  const instructions =
+    chosen?.instructions ||
+    (await setting(
+      "payment_instructions",
+      "Send payment and reply with your transaction reference. An admin will confirm it shortly.",
+    ));
+  const shortId = String(orderId).slice(0, 8);
+
+  if (chosen)
+    await supabaseAdmin
+      .from("orders")
+      .update({ payment_method: chosen.label })
+      .eq("id", orderId as string);
+
+  await render(
+    { chatId, messageId: view.messageId },
     [
-      `🧾 Order created for ${product.name}`,
-      `Amount: ${formatPrice(price)}`,
-      `Order id: ${String(orderId).slice(0, 8)}`,
+      `${chosen ? `💠 <b>${chosen.label}</b>` : "🧾 <b>Payment</b>"}`,
+      "",
+      `📦 Product: <b>${product.name}</b>`,
+      `🔢 Quantity: <b>${qty}</b>`,
+      `💰 Total: <b>${formatPrice(price)}</b>`,
+      `🧾 Order id: <code>${shortId}</code>`,
       "",
       instructions,
       "",
-      "Your item is reserved until an admin confirms or cancels the order.",
+      `✅ After paying, send <code>/pay ${shortId} &lt;transaction ref&gt;</code> here.`,
+      "🚀 Once verified, your items are delivered automatically.",
+      "",
+      "<i>Your items stay reserved until an admin confirms or the order is cancelled.</i>",
     ].join("\n"),
-    [[{ text: "My Orders", callback_data: "orders:0" }]],
+    [
+      [{ text: "🧾 My Orders", callback_data: "orders" }],
+      [
+        { text: "⬅️ Back", callback_data: `product:${slug}` },
+        { text: "🚫 Cancel Order", callback_data: `cx:${shortId}` },
+      ],
+    ],
   );
+}
+
+/** Customer-initiated cancellation of their own pending order. */
+async function cancelOrder(view: View, user: BotUser, shortId: string): Promise<void> {
+  const { data: orders } = await supabaseAdmin
+    .from("orders")
+    .select("id, status")
+    .eq("bot_user_id", user.id)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const order = (orders ?? []).find((o) => String(o.id).startsWith(shortId));
+  if (!order) {
+    await render(view, "That order can no longer be cancelled.", [
+      [{ text: "🏠 Main Menu", callback_data: "menu" }],
+    ]);
+    return;
+  }
+  await supabaseAdmin.rpc("release_order", { p_order: order.id, p_status: "cancelled" });
+  await render(view, "🚫 <b>Order cancelled.</b> The items went back into stock.", [
+    [{ text: "🛍 Shop", callback_data: "shop" }],
+    [{ text: "🏠 Main Menu", callback_data: "menu" }],
+  ]);
 }
 
 // ------------------------------------------------------------------- admin
