@@ -264,36 +264,56 @@ export async function apiScreen(view: View): Promise<void> {
   );
 }
 
-export async function categoriesScreen(view: View): Promise<void> {
-  const categories = await listCategories();
-  if (categories.length === 0) {
+export async function categoriesScreen(view: View, page = 0): Promise<void> {
+  const from = page * PAGE_SIZE;
+  const { data, count } = await supabaseAdmin
+    .from("products")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note", {
+      count: "exact",
+    })
+    .eq("active", true)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true })
+    .range(from, from + PAGE_SIZE - 1);
+  const products = (data ?? []) as ProductRow[];
+
+  if (products.length === 0) {
     await render(view, "😴 <b>No products are available right now.</b>\n\nCheck back soon.", [
       [{ text: "🏠 Menu", callback_data: "menu" }],
     ]);
     return;
   }
 
-  const { data } = await supabaseAdmin
-    .from("products")
-    .select("id, category, price, sale_price, sale_ends_at")
-    .eq("active", true);
-  const rows = (data ?? []) as ProductRow[];
-  const counts = await stockCounts(rows.map((r) => r.id));
-
-  const lines: string[] = ["🛍 <b>Choose a category</b>", ""];
+  const counts = await stockCounts(products.map((product) => product.id));
+  const total = count ?? products.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, page), pages - 1);
+  const lines: string[] = [
+    "🛍 <b>Choose Your Product</b>",
+    `<i>Page ${safePage + 1}/${pages} · ${total} products</i>`,
+  ];
   const buttons: InlineButton[][] = [];
-  categories.forEach((cat, index) => {
-    const inCat = rows.filter((r) => r.category === cat);
-    const inStock = inCat.filter((r) => (counts.get(r.id) ?? 0) > 0).length;
-    const cheapest = Math.min(...inCat.map((r) => effectivePrice(r)));
-    lines.push(
-      `• <b>${esc(cat)}</b> — ${inCat.length} item(s), ${inStock} in stock, from ${formatPrice(cheapest)}`,
-    );
+  products.forEach((product) => {
+    const stock = counts.get(product.id) ?? 0;
     buttons.push([
-      { text: `${esc(cat)} (${inCat.length})`, callback_data: `cat:${index}:0` },
+      {
+        text: `${product.emoji ? `${product.emoji} ` : ""}${product.name} | ${formatPrice(effectivePrice(product))} (${stock})`,
+        callback_data: `product:${product.slug}`,
+      },
     ]);
   });
 
+  const self = `browse:${safePage}`;
+  buttons.push([
+    safePage > 0
+      ? { text: "Prev", callback_data: `browse:${safePage - 1}` }
+      : { text: "·", callback_data: self },
+    { text: `${safePage + 1}/${pages}`, callback_data: self },
+    safePage + 1 < pages
+      ? { text: "Next", callback_data: `browse:${safePage + 1}` }
+      : { text: "End", callback_data: self },
+  ]);
+  buttons.push([{ text: "🔄 Refresh", callback_data: self }]);
   buttons.push([{ text: "🏠 Menu", callback_data: "menu" }]);
   await render(view, lines.join("\n"), buttons);
 }
