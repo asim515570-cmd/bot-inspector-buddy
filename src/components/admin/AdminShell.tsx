@@ -8,6 +8,8 @@ import {
   Banknote,
   Bot,
   Settings,
+  LayoutDashboard,
+  Megaphone,
   LogOut,
   Store,
 } from "lucide-react";
@@ -15,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 export type AdminSection =
+  | "overview"
   | "products"
   | "stock"
   | "orders"
@@ -22,9 +25,11 @@ export type AdminSection =
   | "referrals"
   | "payouts"
   | "bot"
+  | "broadcast"
   | "settings";
 
 const NAV: { id: AdminSection; label: string; icon: typeof Package; group: string }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard, group: "Insights" },
   { id: "products", label: "Products", icon: Package, group: "Catalogue" },
   { id: "stock", label: "Stock", icon: Layers, group: "Catalogue" },
   { id: "orders", label: "Orders", icon: ReceiptText, group: "Sales" },
@@ -32,10 +37,11 @@ const NAV: { id: AdminSection; label: string; icon: typeof Package; group: strin
   { id: "referrals", label: "Referrals", icon: Share2, group: "Sales" },
   { id: "payouts", label: "Payouts", icon: Banknote, group: "Sales" },
   { id: "bot", label: "Bot", icon: Bot, group: "System" },
+  { id: "broadcast", label: "Broadcast", icon: Megaphone, group: "System" },
   { id: "settings", label: "Settings", icon: Settings, group: "System" },
 ];
 
-const GROUPS = ["Catalogue", "Sales", "System"];
+const GROUPS = ["Insights", "Catalogue", "Sales", "System"];
 
 export function AdminShell({
   section,
