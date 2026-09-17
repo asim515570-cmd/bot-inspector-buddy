@@ -10,6 +10,11 @@ export type AdminProduct = {
   emoji: string | null;
   description: string | null;
   price: number;
+  sale_price: number | null;
+  sale_ends_at: string | null;
+  category: string;
+  delivery_note: string | null;
+  sort_order: number;
   active: boolean;
   stock: { available: number; reserved: number; delivered: number };
 };
@@ -68,7 +73,7 @@ export const listProducts = createServerFn({ method: "GET" })
     const [{ data: products, error }, { data: stock }] = await Promise.all([
       db
         .from("products")
-        .select("id, slug, name, emoji, description, price, active")
+        .select("id, slug, name, emoji, description, price, sale_price, sale_ends_at, category, delivery_note, sort_order, active")
         .order("created_at", { ascending: false }),
       db.from("stock_items").select("product_id, status"),
     ]);
@@ -78,6 +83,7 @@ export const listProducts = createServerFn({ method: "GET" })
       return {
         ...p,
         price: Number(p.price),
+        sale_price: p.sale_price === null ? null : Number(p.sale_price),
         stock: {
           available: rows.filter((r) => r.status === "available").length,
           reserved: rows.filter((r) => r.status === "reserved").length,
@@ -98,6 +104,11 @@ export const saveProduct = createServerFn({ method: "POST" })
         emoji: z.string().trim().max(16).nullable(),
         description: z.string().trim().max(1000).nullable(),
         price,
+        sale_price: z.number().nonnegative().max(1_000_000).nullable(),
+        sale_ends_at: z.string().trim().min(1).nullable(),
+        category: z.string().trim().min(1).max(40),
+        delivery_note: z.string().trim().max(1000).nullable(),
+        sort_order: z.number().int().min(0).max(9999),
         active: z.boolean(),
       })
       .parse(d),
@@ -123,6 +134,11 @@ export const saveProduct = createServerFn({ method: "POST" })
       emoji: data.emoji || null,
       description: data.description || null,
       price: data.price,
+      sale_price: data.sale_price && data.sale_price > 0 ? data.sale_price : null,
+      sale_ends_at: data.sale_ends_at ? new Date(data.sale_ends_at).toISOString() : null,
+      category: data.category,
+      delivery_note: data.delivery_note || null,
+      sort_order: data.sort_order,
       active: data.active,
     };
 
