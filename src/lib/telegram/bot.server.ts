@@ -119,11 +119,132 @@ async function getProduct(slug: string) {
 
 // ---------------------------------------------------------------- customer
 
+async function setting(key: string, fallback: string): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("shop_settings")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  const value = (data?.value ?? "").trim();
+  return value || fallback;
+}
+
 async function showWelcome(chatId: number) {
+  const welcome = await setting("welcome_message", "Welcome to the shop! 🛍");
+  await sendMessage(chatId, `${welcome}\n\nTap below to see what's in stock.`, [
+    [{ text: "Browse Products", callback_data: "browse:0" }],
+    [
+      { text: "My Orders", callback_data: "orders:0" },
+      { text: "Balance", callback_data: "balance:0" },
+    ],
+  ]);
+}
+
+/** Creates an order: reserves one unit atomically, then pays from balance if possible. */
+async function startCheckout(chatId: number, user: BotUser, slug: string) {
+  const product = await getProduct(slug);
+  if (!product || !product.active) {
+    await sendMessage(chatId, "That product is not available.");
+    return;
+  }
+
+  const { data: orderId, error } = await supabaseAdmin.rpc("place_order", {
+    p_bot_user: user.id,
+    p_product: product.id,
+  });
+
+  if (error) {
+    const msg = error.message.includes("out_of_stock")
+      ? "😔 Sorry, that product just sold out."
+      : "😔 That product is not available right now.";
+    await sendMessage(chatId, msg);
+    return;
+  }
+
+  const price = Number(product.price);
+  const { data: me } = await supabaseAdmin
+    .from("bot_users")
+    .select("balance")
+    .eq("id", user.id)
+    .maybeSingle();
+  const balance = Number(me?.balance ?? 0);
+
+  if (balance >= price) {
+    const next = balance - price;
+    await supabaseAdmin.from("bot_users").update({ balance: next }).eq("id", user.id);
+    await supabaseAdmin.from("wallet_transactions").insert({
+      bot_user_id: user.id,
+      amount: -price,
+      balance_after: next,
+      reason: `Purchase: ${product.name}`,
+      order_id: orderId as string,
+    });
+    await supabaseAdmin
+      .from("orders")
+      .update({ status: "paid", paid_at: new Date().toISOString(), payment_method: "balance" })
+      .eq("id", orderId as string);
+
+    const { data: delivered } = await supabaseAdmin.rpc("deliver_order", {
+      p_order: orderId as string,
+    });
+    const payloads = ((delivered ?? []) as { payload: string }[]).map((r) => r.payload);
+    await sendMessage(
+      chatId,
+      payloads.length
+        ? `📦 ${product.name}\n\n${payloads.join("\n")}\n\nPaid from your balance. New balance: ${formatPrice(next)}`
+        : "Your order is confirmed, but delivery needs an admin. We'll message you shortly.",
+    );
+    return;
+  }
+
+  const instructions = await setting(
+    "payment_instructions",
+    "Send payment and reply with your transaction reference. An admin will confirm it shortly.",
+  );
   await sendMessage(
     chatId,
-    "Welcome to the shop! 🛍\n\nTap below to see what's in stock.",
-    [[{ text: "Browse Products", callback_data: "browse:0" }]],
+    [
+      `🧾 Order created for ${product.name}`,
+      `Amount: ${formatPrice(price)}`,
+      `Order id: ${String(orderId).slice(0, 8)}`,
+      "",
+      instructions,
+      "",
+      "Your item is reserved until an admin confirms or cancels the order.",
+    ].join("\n"),
+    [[{ text: "My Orders", callback_data: "orders:0" }]],
+  );
+}
+
+async function showOrders(chatId: number, user: BotUser) {
+  const { data } = await supabaseAdmin
+    .from("orders")
+    .select("id, status, total_price, created_at, products(name, emoji)")
+    .eq("bot_user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  const rows = data ?? [];
+  if (rows.length === 0) {
+    await sendMessage(chatId, "You have no orders yet.");
+    return;
+  }
+  const lines = rows.map((o) => {
+    const p = (o as { products: { name: string; emoji: string | null } | null }).products;
+    return `${String(o.id).slice(0, 8)} · ${p?.name ?? "item"} · ${formatPrice(o.total_price)} · ${o.status}`;
+  });
+  await sendMessage(chatId, `🧾 Your latest orders:\n\n${lines.join("\n")}`);
+}
+
+async function showBalance(chatId: number, user: BotUser) {
+  const { data } = await supabaseAdmin
+    .from("bot_users")
+    .select("balance")
+    .eq("id", user.id)
+    .maybeSingle();
+  await sendMessage(
+    chatId,
+    `💰 Your balance: ${formatPrice(Number(data?.balance ?? 0))}\n\nBalance is added by an admin (top-ups and refunds) and is spent automatically at checkout.`,
   );
 }
 
