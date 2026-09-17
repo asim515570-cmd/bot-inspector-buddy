@@ -39,7 +39,7 @@ export type TgUpdate = {
   callback_query?: TgCallback;
 };
 
-type BotUser = { id: string; telegram_id: number; role: "admin" | "customer" };
+type BotUser = { id: string; telegram_id: number; role: "admin" | "customer"; is_blocked?: boolean };
 
 function bootstrapAdminIds(): Set<number> {
   const raw = process.env["ADMIN_TELEGRAM_IDS"] ?? "";
@@ -55,7 +55,7 @@ function bootstrapAdminIds(): Set<number> {
 async function ensureUser(from: TgUser): Promise<BotUser | null> {
   const { data: existing } = await supabaseAdmin
     .from("bot_users")
-    .select("id, telegram_id, role")
+    .select("id, telegram_id, role, is_blocked")
     .eq("telegram_id", from.id)
     .maybeSingle();
 
@@ -74,14 +74,14 @@ async function ensureUser(from: TgUser): Promise<BotUser | null> {
       first_name: from.first_name ?? null,
       role,
     })
-    .select("id, telegram_id, role")
+    .select("id, telegram_id, role, is_blocked")
     .maybeSingle();
 
   if (error) {
     // Race: another concurrent update created the row first.
     const { data: retry } = await supabaseAdmin
       .from("bot_users")
-      .select("id, telegram_id, role")
+      .select("id, telegram_id, role, is_blocked")
       .eq("telegram_id", from.id)
       .maybeSingle();
     return (retry as BotUser | null) ?? null;
@@ -592,13 +592,22 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     const data = callback.data ?? "";
     await answerCallbackQuery(callback.id);
 
+    if (user.is_blocked) {
+      await sendMessage(chatId, "⛔ Your access to this shop has been disabled.");
+      return;
+    }
+
     if (data.startsWith("browse:")) {
       const page = Math.max(0, Number(data.slice(7)) || 0);
       await showCatalog(chatId, page);
     } else if (data.startsWith("product:")) {
       await showProduct(chatId, data.slice(8));
     } else if (data.startsWith("buy:")) {
-      await sendMessage(chatId, "🛒 Checkout is coming soon.");
+      await startCheckout(chatId, user, data.slice(4));
+    } else if (data.startsWith("orders:")) {
+      await showOrders(chatId, user);
+    } else if (data.startsWith("balance:")) {
+      await showBalance(chatId, user);
     }
     return;
   }
@@ -610,6 +619,10 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
   if (!user) return;
 
   const chatId = message.chat.id;
+  if (user.is_blocked) {
+    await sendMessage(chatId, "⛔ Your access to this shop has been disabled.");
+    return;
+  }
   const isPrivate = (message.chat.type ?? "private") === "private";
   const text = (message.text ?? "").trim();
   if (!text.startsWith("/")) return;
@@ -637,6 +650,26 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
       return;
     case "/browse":
       await showCatalog(chatId, 0);
+      return;
+    case "/orders":
+      await showOrders(chatId, user);
+      return;
+    case "/balance":
+      await showBalance(chatId, user);
+      return;
+    case "/support": {
+      const contact = await setting("support_contact", "");
+      await sendMessage(
+        chatId,
+        contact ? `Need help? Contact ${contact}` : "Support contact has not been set up yet.",
+      );
+      return;
+    }
+    case "/help":
+      await sendMessage(
+        chatId,
+        "Commands:\n/start — main menu\n/browse — see products\n/orders — your orders\n/balance — your balance\n/support — get help",
+      );
       return;
     default:
       await sendMessage(chatId, "Unknown command. Try /start.");
