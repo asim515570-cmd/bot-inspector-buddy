@@ -1,0 +1,2 @@
+CREATE POLICY "no public access to bot_rate_limits" ON public.bot_rate_limits FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
+CREATE POLICY "no public access to admin_activity" ON public.admin_activity FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
