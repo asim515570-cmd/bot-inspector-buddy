@@ -26,6 +26,7 @@ type ProductRow = {
   category: string;
   price: number | string;
   sale_price: number | string | null;
+  sale_ends_at?: string | null;
   description: string | null;
   delivery_note: string | null;
 };
@@ -62,10 +63,12 @@ export async function setting(key: string, fallback: string): Promise<string> {
 export function effectivePrice(p: {
   price: number | string;
   sale_price: number | string | null;
+  sale_ends_at?: string | null;
 }): number {
   const base = Number(p.price);
   const sale = p.sale_price === null ? null : Number(p.sale_price);
-  return sale !== null && sale > 0 && sale < base ? sale : base;
+  const live = !p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now();
+  return live && sale !== null && sale > 0 && sale < base ? sale : base;
 }
 
 function priceLabel(p: ProductRow): string {
@@ -173,7 +176,7 @@ export async function categoriesScreen(view: View): Promise<void> {
 
   const { data } = await supabaseAdmin
     .from("products")
-    .select("id, category, price, sale_price")
+    .select("id, category, price, sale_price, sale_ends_at")
     .eq("active", true);
   const rows = (data ?? []) as ProductRow[];
   const counts = await stockCounts(rows.map((r) => r.id));
@@ -211,7 +214,7 @@ export async function categoryScreen(
   const from = page * PAGE_SIZE;
   const { data, count } = await supabaseAdmin
     .from("products")
-    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note", {
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note", {
       count: "exact",
     })
     .eq("active", true)
@@ -263,7 +266,7 @@ export async function categoryScreen(
 export async function productScreen(view: View, slug: string): Promise<void> {
   const { data } = await supabaseAdmin
     .from("products")
-    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note, active")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note, active")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -341,7 +344,7 @@ const QUANTITIES = [1, 2, 3, 5, 10, 15, 20, 25];
 export async function quantityScreen(view: View, slug: string): Promise<void> {
   const { data } = await supabaseAdmin
     .from("products")
-    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note, active")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note, active")
     .eq("slug", slug)
     .maybeSingle();
   const product = data as (ProductRow & { active: boolean }) | null;
@@ -400,7 +403,7 @@ export async function summaryScreen(
 ): Promise<void> {
   const { data } = await supabaseAdmin
     .from("products")
-    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note, active")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note, active")
     .eq("slug", slug)
     .maybeSingle();
   const product = data as (ProductRow & { active: boolean }) | null;
@@ -459,11 +462,17 @@ export async function methodsScreen(view: View, slug: string, qty: number): Prom
   const methods = await paymentMethods();
   const { data } = await supabaseAdmin
     .from("products")
-    .select("name, emoji, price, sale_price")
+    .select("name, emoji, price, sale_price, sale_ends_at")
     .eq("slug", slug)
     .maybeSingle();
   const product = data as
-    | { name: string; emoji: string | null; price: number | string; sale_price: number | string | null }
+    | {
+        name: string;
+        emoji: string | null;
+        price: number | string;
+        sale_price: number | string | null;
+        sale_ends_at: string | null;
+      }
     | null;
   if (!product) {
     await render(view, "❌ <b>That product is not available.</b>", [
