@@ -14,6 +14,146 @@ export type Database = {
   }
   public: {
     Tables: {
+      bot_users: {
+        Row: {
+          created_at: string
+          first_name: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          telegram_id: number
+          updated_at: string
+          username: string | null
+        }
+        Insert: {
+          created_at?: string
+          first_name?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          telegram_id: number
+          updated_at?: string
+          username?: string | null
+        }
+        Update: {
+          created_at?: string
+          first_name?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          telegram_id?: number
+          updated_at?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      orders: {
+        Row: {
+          bot_user_id: string
+          created_at: string
+          id: string
+          status: string
+        }
+        Insert: {
+          bot_user_id: string
+          created_at?: string
+          id?: string
+          status?: string
+        }
+        Update: {
+          bot_user_id?: string
+          created_at?: string
+          id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_bot_user_id_fkey"
+            columns: ["bot_user_id"]
+            isOneToOne: false
+            referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          emoji: string | null
+          id: string
+          name: string
+          price: number
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          emoji?: string | null
+          id?: string
+          name: string
+          price?: number
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          emoji?: string | null
+          id?: string
+          name?: string
+          price?: number
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      stock_items: {
+        Row: {
+          created_at: string
+          delivered_at: string | null
+          id: string
+          order_id: string | null
+          payload: string
+          product_id: string
+          status: Database["public"]["Enums"]["stock_status"]
+        }
+        Insert: {
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          order_id?: string | null
+          payload: string
+          product_id: string
+          status?: Database["public"]["Enums"]["stock_status"]
+        }
+        Update: {
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          order_id?: string | null
+          payload?: string
+          product_id?: string
+          status?: Database["public"]["Enums"]["stock_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       telegram_updates: {
         Row: {
           chat_id: number | null
@@ -52,7 +192,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "customer"
+      stock_status: "available" | "reserved" | "delivered"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -179,6 +320,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "customer"],
+      stock_status: ["available", "reserved", "delivered"],
+    },
   },
 } as const
