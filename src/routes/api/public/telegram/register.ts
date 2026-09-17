@@ -58,7 +58,12 @@ export const Route = createFileRoute("/api/public/telegram/register")({
         });
 
         const result = await res.json();
-        return Response.json({ webhookUrl, telegram: result });
+
+        // Also refresh the command list shown in the Telegram "Menu" button.
+        const { registerBotCommands } = await import("@/lib/telegram/commands.server");
+        const commands = await registerBotCommands();
+
+        return Response.json({ webhookUrl, telegram: result, commands });
       },
     },
   },
