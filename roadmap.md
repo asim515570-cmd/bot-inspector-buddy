@@ -46,3 +46,4 @@ Do not copy the original project's source or exact wording.
 - [x] Add clearly labelled random testing stock and confirm every product has a description
 - [x] Remove the Telegram category chooser; Shop now opens the complete paginated product list
 - [x] Match the product-list controls with pagination, Refresh, Back and Menu inline buttons
+- [x] Match reference colors and density: blue product/navigation buttons, green Refresh, 15 products per page

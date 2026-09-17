@@ -13,7 +13,7 @@ import {
 } from "./gateway.server";
 import { formatPrice } from "./validation";
 
-export const PAGE_SIZE = 6;
+export const PAGE_SIZE = 15;
 
 export type View = { chatId: number; messageId?: number | undefined };
 export type ShopUser = { id: string; telegram_id: number };
@@ -299,6 +299,7 @@ export async function categoriesScreen(view: View, page = 0): Promise<void> {
       {
         text: `${product.emoji ? `${product.emoji} ` : ""}${product.name} | ${formatPrice(effectivePrice(product))} (${stock})`,
         callback_data: `product:${product.slug}`,
+        style: "primary",
       },
     ]);
   });
@@ -306,17 +307,17 @@ export async function categoriesScreen(view: View, page = 0): Promise<void> {
   const self = `browse:${safePage}`;
   buttons.push([
     safePage > 0
-      ? { text: "Prev", callback_data: `browse:${safePage - 1}` }
-      : { text: "·", callback_data: self },
-    { text: `${safePage + 1}/${pages}`, callback_data: self },
+      ? { text: "Prev", callback_data: `browse:${safePage - 1}`, style: "primary" }
+      : { text: "·", callback_data: self, style: "primary" },
+    { text: `${safePage + 1}/${pages}`, callback_data: self, style: "primary" },
     safePage + 1 < pages
-      ? { text: "Next", callback_data: `browse:${safePage + 1}` }
-      : { text: "End", callback_data: self },
+      ? { text: "Next", callback_data: `browse:${safePage + 1}`, style: "primary" }
+      : { text: "End", callback_data: self, style: "primary" },
   ]);
-  buttons.push([{ text: "🔄 Refresh", callback_data: self }]);
+  buttons.push([{ text: "🔄 Refresh", callback_data: self, style: "success" }]);
   buttons.push([
-    { text: "⬅️ Back", callback_data: "menu" },
-    { text: "🏠 Menu", callback_data: "menu" },
+    { text: "⬅️ Back", callback_data: "menu", style: "primary" },
+    { text: "🏠 Menu", callback_data: "menu", style: "primary" },
   ]);
   await render(view, lines.join("\n"), buttons);
 }
@@ -362,6 +363,7 @@ export async function categoryScreen(
       {
         text: `${p.emoji ? `${p.emoji} ` : ""}${p.name} | ${formatPrice(effectivePrice(p))} (${stock})`,
         callback_data: `product:${p.slug}`,
+        style: "primary",
       },
     ]);
   }
@@ -369,17 +371,17 @@ export async function categoryScreen(
   const self = `cat:${categoryIndex}:${page}`;
   buttons.push([
     page > 0
-      ? { text: "Prev", callback_data: `cat:${categoryIndex}:${page - 1}` }
-      : { text: "·", callback_data: self },
-    { text: `${page + 1}/${pages}`, callback_data: self },
+      ? { text: "Prev", callback_data: `cat:${categoryIndex}:${page - 1}`, style: "primary" }
+      : { text: "·", callback_data: self, style: "primary" },
+    { text: `${page + 1}/${pages}`, callback_data: self, style: "primary" },
     page + 1 < pages
-      ? { text: "Next", callback_data: `cat:${categoryIndex}:${page + 1}` }
-      : { text: "End", callback_data: self },
+      ? { text: "Next", callback_data: `cat:${categoryIndex}:${page + 1}`, style: "primary" }
+      : { text: "End", callback_data: self, style: "primary" },
   ]);
-  buttons.push([{ text: "🔄 Refresh", callback_data: self }]);
+  buttons.push([{ text: "🔄 Refresh", callback_data: self, style: "success" }]);
   buttons.push([
-    { text: "⬅️ Back", callback_data: "shop" },
-    { text: "🏠 Menu", callback_data: "menu" },
+    { text: "⬅️ Back", callback_data: "shop", style: "primary" },
+    { text: "🏠 Menu", callback_data: "menu", style: "primary" },
   ]);
 
   await render(view, header, buttons);
