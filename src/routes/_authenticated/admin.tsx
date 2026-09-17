@@ -28,6 +28,9 @@ import { StatsBar } from "@/components/admin/StatsBar";
 import { OrdersPanel } from "@/components/admin/OrdersPanel";
 import { CustomersPanel } from "@/components/admin/CustomersPanel";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
+import { StockPanel } from "@/components/admin/StockPanel";
+import { ReferralsPanel } from "@/components/admin/ReferralsPanel";
+import { BotPanel } from "@/components/admin/BotPanel";
 import {
   Dialog,
   DialogContent,
@@ -228,20 +231,32 @@ function AdminPage() {
       <Tabs defaultValue="products">
         <TabsList className="mb-4">
           <TabsTrigger value="products">Products</TabsTrigger>
+          <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="orders">Orders</TabsTrigger>
           <TabsTrigger value="customers">Customers</TabsTrigger>
+          <TabsTrigger value="referrals">Referrals</TabsTrigger>
           <TabsTrigger value="payouts">Payouts</TabsTrigger>
+          <TabsTrigger value="bot">Bot</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="stock">
+          <StockPanel />
+        </TabsContent>
         <TabsContent value="orders">
           <OrdersPanel />
         </TabsContent>
         <TabsContent value="customers">
           <CustomersPanel />
         </TabsContent>
+        <TabsContent value="referrals">
+          <ReferralsPanel />
+        </TabsContent>
         <TabsContent value="payouts">
           <WithdrawalsPanel />
+        </TabsContent>
+        <TabsContent value="bot">
+          <BotPanel />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsPanel />

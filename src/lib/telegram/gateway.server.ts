@@ -93,3 +93,8 @@ export async function answerCallbackQuery(
     ...(text ? { text } : {}),
   });
 }
+
+/** Raw Bot API call for read-only diagnostics (getMe, getWebhookInfo). */
+export async function telegramInfo(method: string): Promise<unknown> {
+  return callTelegram(method, {});
+}
