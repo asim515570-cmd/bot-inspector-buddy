@@ -90,8 +90,34 @@ export function SettingsPanel() {
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-1.5">
+            <Label htmlFor="store">Store name</Label>
+            <Input id="store" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="Dodi Store" />
+          </div>
+          <div className="grid gap-1.5">
             <Label htmlFor="welcome">Welcome message</Label>
             <Textarea id="welcome" rows={2} value={welcome} onChange={(e) => setWelcome(e.target.value)} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="channel">Channel link</Label>
+              <Input id="channel" value={channelUrl} onChange={(e) => setChannelUrl(e.target.value)} placeholder="https://t.me/yourchannel" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="group">Group link</Label>
+              <Input id="group" value={groupUrl} onChange={(e) => setGroupUrl(e.target.value)} placeholder="https://t.me/yourgroup" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="terms">Terms link</Label>
+              <Input id="terms" value={termsUrl} onChange={(e) => setTermsUrl(e.target.value)} placeholder="https://t.me/yourchannel/2" />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="notice">Notice on the welcome screen</Label>
+            <Input id="notice" value={notice} onChange={(e) => setNotice(e.target.value)} placeholder="Support time is 9:00PM to 12:00AM" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="apiinfo">Developer API text</Label>
+            <Textarea id="apiinfo" rows={2} value={apiInfo} onChange={(e) => setApiInfo(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="payment">Payment instructions</Label>
