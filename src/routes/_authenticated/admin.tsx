@@ -30,6 +30,8 @@ import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { StockPanel } from "@/components/admin/StockPanel";
 import { ReferralsPanel } from "@/components/admin/ReferralsPanel";
 import { BotPanel } from "@/components/admin/BotPanel";
+import { OverviewPanel } from "@/components/admin/OverviewPanel";
+import { BroadcastPanel } from "@/components/admin/BroadcastPanel";
 import { AdminShell, type AdminSection } from "@/components/admin/AdminShell";
 import { Plus } from "lucide-react";
 import {
@@ -86,6 +88,7 @@ const emptyDraft: Draft = {
 };
 
 const SECTION_META: Record<AdminSection, { title: string; description: string }> = {
+  overview: { title: "Overview", description: "Revenue, best sellers and recent admin activity." },
   products: { title: "Products", description: "Catalogue shown inside your Telegram shop." },
   stock: { title: "Stock", description: "Codes available, reserved and delivered per product." },
   orders: { title: "Orders", description: "Confirm payments and deliver orders." },
@@ -93,6 +96,7 @@ const SECTION_META: Record<AdminSection, { title: string; description: string }>
   referrals: { title: "Referrals", description: "Who invited whom and what they earned." },
   payouts: { title: "Payouts", description: "Approve or reject withdrawal requests." },
   bot: { title: "Bot", description: "Connection status and bot menu." },
+  broadcast: { title: "Broadcast", description: "Send an announcement to every customer." },
   settings: { title: "Settings", description: "Shop texts, payment options and links." },
 };
 
@@ -108,7 +112,7 @@ function AdminPage() {
   const removeStockItem = useServerFn(deleteStockItem);
   const clearStock = useServerFn(clearAvailableStock);
 
-  const [section, setSection] = useState<AdminSection>("products");
+  const [section, setSection] = useState<AdminSection>("overview");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stockFor, setStockFor] = useState<AdminProduct | null>(null);
   const [stockText, setStockText] = useState("");
@@ -246,12 +250,14 @@ function AdminPage() {
     >
       <StatsBar />
 
+      {section === "overview" && <OverviewPanel />}
       {section === "stock" && <StockPanel />}
       {section === "orders" && <OrdersPanel />}
       {section === "customers" && <CustomersPanel />}
       {section === "referrals" && <ReferralsPanel />}
       {section === "payouts" && <WithdrawalsPanel />}
       {section === "bot" && <BotPanel />}
+      {section === "broadcast" && <BroadcastPanel />}
       {section === "settings" && <SettingsPanel />}
 
       {section === "products" && (
