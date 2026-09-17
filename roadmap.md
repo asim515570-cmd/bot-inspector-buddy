@@ -26,12 +26,13 @@ Do not copy the original project's source or exact wording.
 - [x] Professional storefront: categories, sale prices, single-message navigation, demo catalogue
 
 ## New (screenshot-driven bot UX)
-- [ ] Product list buttons: "Name | $price (stock)" + Prev / page / End + Refresh + Back
-- [ ] Product detail: Price per code, Stock, Sold, description + delivery instructions blocks, Buy Now / Back to Store
-- [ ] Quantity select screen (1,2,3,5,10,15,20,25 + custom amount)
-- [ ] Order summary screen (qty, price each, total) -> Choose payment method
-- [ ] Payment method screen: methods configurable from dashboard, per-method instructions screen with Back / Cancel Order
-- [ ] Bot command menu: /start /menu /help via setMyCommands
-- [ ] Dashboard: edit category, sale price, delivery note, sort order, payment methods
+- [x] Dashboard sections: Products, Stock levels, Orders, Customers, Referrals, Payouts, Bot status, Settings
+- [x] Product list buttons: "Name | $price (stock)" + Prev / page / End + Refresh + Back
+- [x] Product detail: Price per code, Stock, Sold, description + delivery instructions blocks, Buy Now / Back to Store
+- [x] Quantity select screen (1,2,3,5,10,15,20,25 + custom amount)
+- [x] Order summary screen (qty, price each, total) -> Choose payment method
+- [x] Payment method screen: methods configurable from dashboard, per-method instructions screen with Back / Cancel Order
+- [x] Bot command menu: /start /menu /help via setMyCommands
+- [x] Dashboard: edit category, sale price, delivery note, sort order, payment methods
 - [x] Full command menu (setMyCommands): /start /menu /help /admin /products /addproduct /setprice /flashsale /flashsales /stopflashsale /setactive /setdesc /setemoji /addstock /stock /clearstock /delproduct /payments /approve_pay /redeliver_pay /reject_pay /withdrawals /approve_wd /reject_wd /whois /credit /debit /ban /unban /broadcast /backup
 - [x] New admin commands: /admin help, /products, /flashsale (timed sale price), /flashsales, /stopflashsale, /redeliver_pay, /backup
