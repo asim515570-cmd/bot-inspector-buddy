@@ -59,10 +59,27 @@ type Draft = {
   emoji: string;
   description: string;
   price: string;
+  salePrice: string;
+  saleEndsAt: string;
+  category: string;
+  deliveryNote: string;
+  sortOrder: string;
   active: boolean;
 };
 
-const emptyDraft: Draft = { slug: "", name: "", emoji: "", description: "", price: "", active: false };
+const emptyDraft: Draft = {
+  slug: "",
+  name: "",
+  emoji: "",
+  description: "",
+  price: "",
+  salePrice: "",
+  saleEndsAt: "",
+  category: "General",
+  deliveryNote: "",
+  sortOrder: "100",
+  active: false,
+};
 
 function AdminPage() {
   const navigate = useNavigate();
@@ -109,6 +126,11 @@ function AdminPage() {
           emoji: d.emoji.trim() || null,
           description: d.description.trim() || null,
           price: Number(d.price),
+          sale_price: d.salePrice.trim() ? Number(d.salePrice) : null,
+          sale_ends_at: d.saleEndsAt.trim() || null,
+          category: d.category.trim() || "General",
+          delivery_note: d.deliveryNote.trim() || null,
+          sort_order: Number(d.sortOrder) || 100,
           active: d.active,
         },
       }),
@@ -267,6 +289,11 @@ function AdminPage() {
                       emoji: p.emoji ?? "",
                       description: p.description ?? "",
                       price: String(p.price),
+                      salePrice: p.sale_price === null ? "" : String(p.sale_price),
+                      saleEndsAt: p.sale_ends_at ? p.sale_ends_at.slice(0, 16) : "",
+                      category: p.category,
+                      deliveryNote: p.delivery_note ?? "",
+                      sortOrder: String(p.sort_order),
                       active: p.active,
                     })
                   }
@@ -322,6 +349,41 @@ function AdminPage() {
                   <Label htmlFor="emoji">Emoji</Label>
                   <Input id="emoji" value={draft.emoji} onChange={(e) => setDraft({ ...draft, emoji: e.target.value })} />
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sale">Sale price (optional)</Label>
+                  <Input
+                    id="sale"
+                    inputMode="decimal"
+                    value={draft.salePrice}
+                    onChange={(e) => setDraft({ ...draft, salePrice: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="saleends">Sale ends (optional)</Label>
+                  <Input
+                    id="saleends"
+                    type="datetime-local"
+                    value={draft.saleEndsAt}
+                    onChange={(e) => setDraft({ ...draft, saleEndsAt: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="category">Category</Label>
+                  <Input
+                    id="category"
+                    value={draft.category}
+                    onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sort">Sort order</Label>
+                  <Input
+                    id="sort"
+                    inputMode="numeric"
+                    value={draft.sortOrder}
+                    onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="desc">Description</Label>
@@ -330,6 +392,15 @@ function AdminPage() {
                   rows={3}
                   value={draft.description}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="delivery">Delivery instructions (shown on the product card)</Label>
+                <Textarea
+                  id="delivery"
+                  rows={2}
+                  value={draft.deliveryNote}
+                  onChange={(e) => setDraft({ ...draft, deliveryNote: e.target.value })}
                 />
               </div>
               <div className="flex items-center gap-3">
@@ -362,6 +433,13 @@ function AdminPage() {
                 if (!Number.isFinite(price) || price <= 0) {
                   toast.error("Enter a price greater than zero.");
                   return;
+                }
+                if (draft.salePrice.trim()) {
+                  const sale = Number(draft.salePrice);
+                  if (!Number.isFinite(sale) || sale <= 0 || sale >= price) {
+                    toast.error("Sale price must be greater than zero and lower than the price.");
+                    return;
+                  }
                 }
                 saveMutation.mutate(draft);
               }}

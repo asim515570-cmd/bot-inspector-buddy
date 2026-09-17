@@ -381,13 +381,19 @@ export const saveSettings = createServerFn({ method: "POST" })
         welcome_message: z.string().trim().max(1000),
         support_contact: z.string().trim().max(200),
         payment_instructions: z.string().trim().max(1000),
+        payment_methods: z.string().trim().max(4000).optional(),
+        referral_percent: z.string().trim().max(5).optional(),
+        min_withdraw: z.string().trim().max(12).optional(),
+        bot_username: z.string().trim().max(64).optional(),
       })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
     await assertAdmin(context.userId);
     const db = await admin();
-    const rows = Object.entries(data).map(([key, value]) => ({ key, value }));
+    const rows = Object.entries(data)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => ({ key, value: value as string }));
     const { error } = await db.from("shop_settings").upsert(rows, { onConflict: "key" });
     if (error) throw new Error(error.message);
     return { message: "Settings saved." };

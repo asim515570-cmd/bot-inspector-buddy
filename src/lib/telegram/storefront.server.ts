@@ -26,6 +26,7 @@ type ProductRow = {
   category: string;
   price: number | string;
   sale_price: number | string | null;
+  sale_ends_at?: string | null;
   description: string | null;
   delivery_note: string | null;
 };
@@ -62,10 +63,12 @@ export async function setting(key: string, fallback: string): Promise<string> {
 export function effectivePrice(p: {
   price: number | string;
   sale_price: number | string | null;
+  sale_ends_at?: string | null;
 }): number {
   const base = Number(p.price);
   const sale = p.sale_price === null ? null : Number(p.sale_price);
-  return sale !== null && sale > 0 && sale < base ? sale : base;
+  const live = !p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now();
+  return live && sale !== null && sale > 0 && sale < base ? sale : base;
 }
 
 function priceLabel(p: ProductRow): string {
@@ -88,6 +91,16 @@ async function stockCounts(productIds: string[]): Promise<Map<string, number>> {
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   return counts;
+}
+
+/** How many units of a product have been delivered so far. */
+async function soldCount(productId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("stock_items")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("status", "delivered");
+  return count ?? 0;
 }
 
 export async function listCategories(): Promise<string[]> {
@@ -163,7 +176,7 @@ export async function categoriesScreen(view: View): Promise<void> {
 
   const { data } = await supabaseAdmin
     .from("products")
-    .select("id, category, price, sale_price")
+    .select("id, category, price, sale_price, sale_ends_at")
     .eq("active", true);
   const rows = (data ?? []) as ProductRow[];
   const counts = await stockCounts(rows.map((r) => r.id));
@@ -201,7 +214,7 @@ export async function categoryScreen(
   const from = page * PAGE_SIZE;
   const { data, count } = await supabaseAdmin
     .from("products")
-    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note", {
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note", {
       count: "exact",
     })
     .eq("active", true)
@@ -219,40 +232,41 @@ export async function categoryScreen(
   const total = count ?? products.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const lines = [`🛍 <b>${esc(category)}</b>  <i>(page ${page + 1}/${pages})</i>`, ""];
+  const header = `🛒 <b>Choose Your Product:</b>\n<i>${esc(category)} · page ${page + 1}/${pages}</i>`;
   const buttons: InlineButton[][] = [];
   for (const p of products) {
     const stock = counts.get(p.id) ?? 0;
-    const badge = stock > 0 ? `${stock} in stock` : "out of stock";
-    const sale = effectivePrice(p) < Number(p.price) ? " 🔥" : "";
-    lines.push(
-      `${p.emoji ?? "•"} <b>${esc(p.name)}</b>${sale}\n   ${priceLabel(p)} · ${badge}`,
-    );
     buttons.push([
       {
-        text: `${p.emoji ? `${p.emoji} ` : ""}${p.name} — ${formatPrice(effectivePrice(p))}`,
+        text: `${p.emoji ? `${p.emoji} ` : ""}${p.name} | ${formatPrice(effectivePrice(p))} (${stock})`,
         callback_data: `product:${p.slug}`,
       },
     ]);
   }
 
-  const nav: InlineButton[] = [];
-  if (page > 0) nav.push({ text: "« Prev", callback_data: `cat:${categoryIndex}:${page - 1}` });
-  if (from + PAGE_SIZE < total)
-    nav.push({ text: "Next »", callback_data: `cat:${categoryIndex}:${page + 1}` });
-  if (nav.length) buttons.push(nav);
+  const self = `cat:${categoryIndex}:${page}`;
   buttons.push([
-    { text: "⬅️ Categories", callback_data: "shop" },
+    page > 0
+      ? { text: "Prev", callback_data: `cat:${categoryIndex}:${page - 1}` }
+      : { text: "·", callback_data: self },
+    { text: `${page + 1}/${pages}`, callback_data: self },
+    page + 1 < pages
+      ? { text: "Next", callback_data: `cat:${categoryIndex}:${page + 1}` }
+      : { text: "End", callback_data: self },
+  ]);
+  buttons.push([{ text: "🔄 Refresh", callback_data: self }]);
+  buttons.push([
+    { text: "⬅️ Back", callback_data: "shop" },
     { text: "🏠 Menu", callback_data: "menu" },
   ]);
 
-  await render(view, lines.join("\n"), buttons);
+  await render(view, header, buttons);
 }
 
 export async function productScreen(view: View, slug: string): Promise<void> {
   const { data } = await supabaseAdmin
     .from("products")
-    .select("id, slug, name, emoji, category, price, sale_price, description, delivery_note, active")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note, active")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -266,6 +280,7 @@ export async function productScreen(view: View, slug: string): Promise<void> {
 
   const counts = await stockCounts([product.id]);
   const stock = counts.get(product.id) ?? 0;
+  const sold = await soldCount(product.id);
   const now = effectivePrice(product);
   const base = Number(product.price);
   const categories = await listCategories();
@@ -273,32 +288,227 @@ export async function productScreen(view: View, slug: string): Promise<void> {
 
   const lines = [
     `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
-    `<i>${esc(product.category)}</i>`,
-    "",
-    product.description ? esc(product.description) : "",
-    "",
     now < base
-      ? `💵 Price: <b>${formatPrice(now)}</b>  <s>${formatPrice(base)}</s>  🔥 ${Math.round(((base - now) / base) * 100)}% off`
-      : `💵 Price: <b>${formatPrice(now)}</b>`,
-    stock > 0 ? `📦 Available: <b>${stock}</b>` : "📦 <b>Out of stock</b>",
-    product.delivery_note ? `🚚 ${esc(product.delivery_note)}` : "",
-  ].filter((l) => l !== "");
+      ? `💰 Price: <b>${formatPrice(now)}</b> / code  <s>${formatPrice(base)}</s>  🔥 ${Math.round(((base - now) / base) * 100)}% off`
+      : `💰 Price: <b>${formatPrice(now)}</b> / code`,
+    `📦 Stock: <b>${stock}</b>`,
+    `📈 Sold: <b>${sold}</b>`,
+  ];
+  if (product.description) lines.push("", `<blockquote>${esc(product.description)}</blockquote>`);
+  if (product.delivery_note)
+    lines.push(
+      "",
+      "Delivery instructions:",
+      `<blockquote>${esc(product.delivery_note)}</blockquote>`,
+    );
+  lines.push("", "<i>Delivery is automatic after payment confirmation.</i>");
 
   const buy: InlineButton[] =
     stock > 0
-      ? [{ text: `🛒 Buy — ${formatPrice(now)}`, callback_data: `buy:${product.slug}` }]
+      ? [{ text: "🛒 Buy Now", callback_data: `buy:${product.slug}` }]
       : [{ text: "🔕 Out of stock", callback_data: "shop" }];
 
   await render(view, lines.join("\n"), [
     buy,
     [
       {
-        text: "⬅️ Back",
+        text: "⬅️ Back to Store",
         callback_data: categoryIndex >= 0 ? `cat:${categoryIndex}:0` : "shop",
       },
-      { text: "🏠 Menu", callback_data: "menu" },
+      { text: "🏠 Main Menu", callback_data: "menu" },
     ],
   ]);
+}
+
+// --------------------------------------------------------------- checkout UI
+
+/** Payment methods, configured from the dashboard as "Label | instructions" lines. */
+export async function paymentMethods(): Promise<{ label: string; instructions: string }[]> {
+  const raw = await setting("payment_methods", "");
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [label, ...rest] = line.split("|");
+      return {
+        label: (label ?? "").trim() || "Payment",
+        instructions: rest.join("|").trim(),
+      };
+    })
+    .slice(0, 10);
+}
+
+const QUANTITIES = [1, 2, 3, 5, 10, 15, 20, 25];
+
+export async function quantityScreen(view: View, slug: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("products")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note, active")
+    .eq("slug", slug)
+    .maybeSingle();
+  const product = data as (ProductRow & { active: boolean }) | null;
+  if (!product || !product.active) {
+    await render(view, "❌ <b>That product is not available.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const stock = (await stockCounts([product.id])).get(product.id) ?? 0;
+  if (stock === 0) {
+    await render(view, "😔 <b>That product just sold out.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const price = effectivePrice(product);
+  const options = QUANTITIES.filter((q) => q <= stock);
+  if (options.length === 0) options.push(stock);
+
+  const rows: InlineButton[][] = [];
+  for (let i = 0; i < options.length; i += 4) {
+    rows.push(
+      options.slice(i, i + 4).map((q) => ({
+        text: String(q),
+        callback_data: `qty:${product.slug}:${q}`,
+      })),
+    );
+  }
+  if (stock > 1 && !options.includes(stock))
+    rows.push([{ text: `Max (${stock})`, callback_data: `qty:${product.slug}:${stock}` }]);
+  rows.push([
+    { text: "⬅️ Back", callback_data: `product:${product.slug}` },
+    { text: "🏠 Main Menu", callback_data: "menu" },
+  ]);
+
+  await render(
+    view,
+    [
+      "🧮 <b>Select Quantity</b>",
+      "",
+      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+      `${formatPrice(price)} / code · ${stock} in stock`,
+      "",
+      "How many codes do you want?",
+    ].join("\n"),
+    rows,
+  );
+}
+
+export async function summaryScreen(
+  view: View,
+  user: ShopUser,
+  slug: string,
+  qty: number,
+): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("products")
+    .select("id, slug, name, emoji, category, price, sale_price, sale_ends_at, description, delivery_note, active")
+    .eq("slug", slug)
+    .maybeSingle();
+  const product = data as (ProductRow & { active: boolean }) | null;
+  if (!product || !product.active) {
+    await render(view, "❌ <b>That product is not available.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const stock = (await stockCounts([product.id])).get(product.id) ?? 0;
+  if (qty > stock) {
+    await render(view, `😔 <b>Only ${stock} left.</b> Pick a smaller quantity.`, [
+      [{ text: "⬅️ Back", callback_data: `buy:${product.slug}` }],
+    ]);
+    return;
+  }
+  const price = effectivePrice(product);
+  const total = price * qty;
+  const { data: me } = await supabaseAdmin
+    .from("bot_users")
+    .select("balance")
+    .eq("id", user.id)
+    .maybeSingle();
+  const balance = Number(me?.balance ?? 0);
+
+  const rows: InlineButton[][] = [];
+  if (balance >= total)
+    rows.push([
+      { text: `💵 Pay from balance (${formatPrice(balance)})`, callback_data: `paybal:${slug}:${qty}` },
+    ]);
+  rows.push([{ text: "💳 Choose payment method", callback_data: `pm:${slug}:${qty}` }]);
+  rows.push([
+    { text: "⬅️ Back", callback_data: `buy:${slug}` },
+    { text: "🚫 Cancel", callback_data: `product:${slug}` },
+  ]);
+
+  await render(
+    view,
+    [
+      "🧾 <b>Order Summary</b>",
+      "",
+      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+      `🔢 Qty: <b>${qty}</b>`,
+      `💰 Price: <b>${formatPrice(price)}</b> each`,
+      `🧮 Total: <b>${formatPrice(total)}</b>`,
+      "",
+      `👛 Your balance: ${formatPrice(balance)}`,
+      "",
+      "Choose a payment method:",
+    ].join("\n"),
+    rows,
+  );
+}
+
+export async function methodsScreen(view: View, slug: string, qty: number): Promise<void> {
+  const methods = await paymentMethods();
+  const { data } = await supabaseAdmin
+    .from("products")
+    .select("name, emoji, price, sale_price, sale_ends_at")
+    .eq("slug", slug)
+    .maybeSingle();
+  const product = data as
+    | {
+        name: string;
+        emoji: string | null;
+        price: number | string;
+        sale_price: number | string | null;
+        sale_ends_at: string | null;
+      }
+    | null;
+  if (!product) {
+    await render(view, "❌ <b>That product is not available.</b>", [
+      [{ text: "🛍 Shop", callback_data: "shop" }],
+    ]);
+    return;
+  }
+  const total = effectivePrice(product) * qty;
+
+  if (methods.length === 0) {
+    await render(
+      view,
+      "💳 <b>No payment methods are set up yet.</b>\n\nPlease contact support to complete this order.",
+      [[{ text: "🆘 Support", callback_data: "support" }], [{ text: "🏠 Main Menu", callback_data: "menu" }]],
+    );
+    return;
+  }
+
+  const rows: InlineButton[][] = methods.map((m, index) => [
+    { text: `💠 ${m.label}`, callback_data: `pmx:${slug}:${qty}:${index}` },
+  ]);
+  rows.push([
+    { text: "⬅️ Back", callback_data: `qty:${slug}:${qty}` },
+    { text: "🚫 Cancel Order", callback_data: `product:${slug}` },
+  ]);
+
+  await render(
+    view,
+    [
+      "💳 <b>Select Payment Method</b>",
+      "",
+      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b> × ${qty}`,
+      `Total: <b>${formatPrice(total)}</b>`,
+    ].join("\n"),
+    rows,
+  );
 }
 
 export async function ordersScreen(view: View, user: ShopUser): Promise<void> {

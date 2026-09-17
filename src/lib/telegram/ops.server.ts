@@ -232,6 +232,8 @@ export const OPS_COMMANDS = new Set([
   "/unban",
   "/stats",
   "/broadcast",
+  "/redeliver_pay",
+  "/backup",
 ]);
 
 async function findUserByTelegramId(tid: number) {
@@ -386,6 +388,63 @@ export async function handleOpsCommand(
           ],
         );
       }
+      return;
+    }
+
+    case "/redeliver_pay": {
+      const ref = rest.trim().split(/\s+/)[0] ?? "";
+      if (!ref) return void (await sendMessage(chatId, "Usage: /redeliver_pay <order id>"));
+      const { data: orders } = await supabaseAdmin
+        .from("orders")
+        .select("id, status, products(name), bot_users(telegram_id)")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      const order = (orders ?? []).find((o) => String(o.id).startsWith(ref));
+      if (!order) return void (await sendMessage(chatId, "❌ No order with that id."));
+      const { data: items } = await supabaseAdmin
+        .from("stock_items")
+        .select("payload")
+        .eq("order_id", order.id)
+        .eq("status", "delivered");
+      const payloads = (items ?? []).map((i) => i.payload);
+      if (!payloads.length)
+        return void (await sendMessage(chatId, "❌ Nothing delivered on that order yet."));
+      const tid = (order as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
+      const name = (order as { products: { name: string } | null }).products?.name ?? "your order";
+      if (tid) await sendMessage(tid, `📦 ${name} (re-sent)\n\n${payloads.join("\n")}`);
+      await sendMessage(chatId, `✅ Re-sent ${payloads.length} item(s) to ${tid ?? "unknown"}.`);
+      return;
+    }
+
+    case "/backup": {
+      const [{ count: users }, { count: products }, { count: ordersCount }, { data: stock }] =
+        await Promise.all([
+          supabaseAdmin.from("bot_users").select("id", { count: "exact", head: true }),
+          supabaseAdmin.from("products").select("id", { count: "exact", head: true }),
+          supabaseAdmin.from("orders").select("id", { count: "exact", head: true }),
+          supabaseAdmin.from("stock_items").select("status"),
+        ]);
+      const byStatus = new Map<string, number>();
+      for (const s of stock ?? [])
+        byStatus.set(s.status as string, (byStatus.get(s.status as string) ?? 0) + 1);
+      const { data: paid } = await supabaseAdmin
+        .from("orders")
+        .select("total_price")
+        .in("status", ["paid", "delivered"]);
+      const revenue = (paid ?? []).reduce((a, o) => a + Number(o.total_price), 0);
+      await sendMessage(
+        chatId,
+        [
+          `🗄 Backup snapshot · ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`,
+          `Customers: ${users ?? 0}`,
+          `Products: ${products ?? 0}`,
+          `Orders: ${ordersCount ?? 0}`,
+          `Stock — available ${byStatus.get("available") ?? 0}, reserved ${byStatus.get("reserved") ?? 0}, delivered ${byStatus.get("delivered") ?? 0}`,
+          `Revenue: ${formatPrice(revenue)}`,
+          "",
+          "Full data export is available in the admin dashboard.",
+        ].join("\n"),
+      );
       return;
     }
 

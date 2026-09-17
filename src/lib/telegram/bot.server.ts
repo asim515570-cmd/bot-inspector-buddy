@@ -27,9 +27,14 @@ import {
   effectivePrice,
   howItWorksScreen,
   mainMenu,
+  methodsScreen,
   ordersScreen,
+  paymentMethods,
   productScreen,
+  quantityScreen,
+  render,
   setting,
+  summaryScreen,
   supportScreen,
   type View,
 } from "./storefront.server";
@@ -157,8 +162,14 @@ async function getProduct(slug: string) {
 
 // ---------------------------------------------------------------- customer
 
-/** Creates an order: reserves one unit atomically, then pays from balance if possible. */
-async function startCheckout(view: View, user: BotUser, slug: string) {
+/** Creates an order: reserves the units atomically, then pays from balance if possible. */
+async function startCheckout(
+  view: View,
+  user: BotUser,
+  slug: string,
+  qty = 1,
+  methodIndex?: number,
+) {
   const chatId = view.chatId;
   const product = await getProduct(slug);
   if (!product || !product.active) {
@@ -169,6 +180,7 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
   const { data: orderId, error } = await supabaseAdmin.rpc("place_order", {
     p_bot_user: user.id,
     p_product: product.id,
+    p_qty: qty,
   });
 
   if (error) {
@@ -179,7 +191,7 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
     return;
   }
 
-  const price = effectivePrice(product);
+  const price = effectivePrice(product) * qty;
   const { data: me } = await supabaseAdmin
     .from("bot_users")
     .select("balance")
@@ -187,7 +199,7 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
     .maybeSingle();
   const balance = Number(me?.balance ?? 0);
 
-  if (balance >= price) {
+  if (methodIndex === undefined && balance >= price) {
     const next = balance - price;
     await supabaseAdmin.from("bot_users").update({ balance: next }).eq("id", user.id);
     await supabaseAdmin.from("wallet_transactions").insert({
@@ -248,28 +260,77 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
     return;
   }
 
-  const instructions = await setting(
-    "payment_instructions",
-    "Send payment and reply with your transaction reference. An admin will confirm it shortly.",
-  );
-  await sendMessage(
-    chatId,
+  const methods = await paymentMethods();
+  const chosen = methodIndex === undefined ? undefined : methods[methodIndex];
+  const instructions =
+    chosen?.instructions ||
+    (await setting(
+      "payment_instructions",
+      "Send payment and reply with your transaction reference. An admin will confirm it shortly.",
+    ));
+  const shortId = String(orderId).slice(0, 8);
+
+  if (chosen)
+    await supabaseAdmin
+      .from("orders")
+      .update({ payment_method: chosen.label })
+      .eq("id", orderId as string);
+
+  await render(
+    { chatId, messageId: view.messageId },
     [
-      `🧾 Order created for ${product.name}`,
-      `Amount: ${formatPrice(price)}`,
-      `Order id: ${String(orderId).slice(0, 8)}`,
+      `${chosen ? `💠 <b>${chosen.label}</b>` : "🧾 <b>Payment</b>"}`,
+      "",
+      `📦 Product: <b>${product.name}</b>`,
+      `🔢 Quantity: <b>${qty}</b>`,
+      `💰 Total: <b>${formatPrice(price)}</b>`,
+      `🧾 Order id: <code>${shortId}</code>`,
       "",
       instructions,
       "",
-      "Your item is reserved until an admin confirms or cancels the order.",
+      `✅ After paying, send <code>/pay ${shortId} &lt;transaction ref&gt;</code> here.`,
+      "🚀 Once verified, your items are delivered automatically.",
+      "",
+      "<i>Your items stay reserved until an admin confirms or the order is cancelled.</i>",
     ].join("\n"),
-    [[{ text: "My Orders", callback_data: "orders:0" }]],
+    [
+      [{ text: "🧾 My Orders", callback_data: "orders" }],
+      [
+        { text: "⬅️ Back", callback_data: `product:${slug}` },
+        { text: "🚫 Cancel Order", callback_data: `cx:${shortId}` },
+      ],
+    ],
   );
+}
+
+/** Customer-initiated cancellation of their own pending order. */
+async function cancelOrder(view: View, user: BotUser, shortId: string): Promise<void> {
+  const { data: orders } = await supabaseAdmin
+    .from("orders")
+    .select("id, status")
+    .eq("bot_user_id", user.id)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const order = (orders ?? []).find((o) => String(o.id).startsWith(shortId));
+  if (!order) {
+    await render(view, "That order can no longer be cancelled.", [
+      [{ text: "🏠 Main Menu", callback_data: "menu" }],
+    ]);
+    return;
+  }
+  await supabaseAdmin.rpc("release_order", { p_order: order.id, p_status: "cancelled" });
+  await render(view, "🚫 <b>Order cancelled.</b> The items went back into stock.", [
+    [{ text: "🛍 Shop", callback_data: "shop" }],
+    [{ text: "🏠 Main Menu", callback_data: "menu" }],
+  ]);
 }
 
 // ------------------------------------------------------------------- admin
 
 const ADMIN_COMMANDS = new Set([
+  "/admin",
+  "/products",
   "/addproduct",
   "/setprice",
   "/setactive",
@@ -279,7 +340,39 @@ const ADMIN_COMMANDS = new Set([
   "/addstock",
   "/stock",
   "/clearstock",
+  "/flashsale",
+  "/flashsales",
+  "/stopflashsale",
 ]);
+
+const ADMIN_HELP = [
+  "🛠 <b>Admin commands</b>",
+  "",
+  "<b>Catalog</b>",
+  "/products — list every product",
+  "/addproduct slug|Name|emoji|price",
+  "/setprice slug 24.99",
+  "/setactive slug on|off",
+  "/setdesc slug Description…",
+  "/setemoji slug &lt;id|clear&gt;",
+  "/delproduct slug confirm",
+  "",
+  "<b>Flash sales</b>",
+  "/flashsale slug sale_price hours",
+  "/flashsales — list running sales",
+  "/stopflashsale slug",
+  "",
+  "<b>Stock</b>",
+  "/addstock slug (then one code per line)",
+  "/stock slug",
+  "/clearstock slug confirm",
+  "",
+  "<b>Orders &amp; money</b>",
+  "/payments · /approve_pay ID · /reject_pay ID reason · /redeliver_pay ID",
+  "/withdrawals · /approve_wd ID · /reject_wd ID reason",
+  "/whois USER_ID · /credit USER_ID 10 · /debit USER_ID 5",
+  "/ban USER_ID · /unban USER_ID · /broadcast message · /backup",
+].join("\n");
 
 async function handleAdminCommand(
   command: string,
@@ -309,8 +402,8 @@ async function handleAdminCommand(
   const args = firstLine.trim().split(/\s+/).filter(Boolean);
   const slug = args[0] ?? "";
 
-  const needsSlug = command !== "/addproduct";
-  if (needsSlug && !isValidSlug(slug)) {
+  const noSlug = new Set(["/addproduct", "/admin", "/products", "/flashsales"]);
+  if (!noSlug.has(command) && !isValidSlug(slug)) {
     await sendMessage(
       chatId,
       "❌ Invalid slug. Use 2-32 characters: lowercase letters, numbers, - or _.",
@@ -319,6 +412,104 @@ async function handleAdminCommand(
   }
 
   switch (command) {
+    case "/admin": {
+      await sendMessage(chatId, ADMIN_HELP, undefined, true);
+      return;
+    }
+    case "/products": {
+      const { data: rows } = await supabaseAdmin
+        .from("products")
+        .select("slug, name, emoji, price, sale_price, sale_ends_at, active, category")
+        .order("category")
+        .order("sort_order")
+        .limit(100);
+      const { data: stock } = await supabaseAdmin
+        .from("stock_items")
+        .select("product_id, status");
+      void stock;
+      if (!rows || rows.length === 0) {
+        await sendMessage(chatId, "No products yet. Use /addproduct.");
+        return;
+      }
+      const lines = rows.map((p) => {
+        const live =
+          p.sale_price && (!p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now());
+        const price = live ? `${formatPrice(Number(p.sale_price))} 🔥` : formatPrice(Number(p.price));
+        return `${p.active ? "🟢" : "⚪️"} <code>${p.slug}</code> — ${p.emoji ?? ""} ${p.name} · ${price} · ${p.category}`;
+      });
+      await sendMessage(chatId, ["📦 <b>Products</b>", "", ...lines].join("\n"), undefined, true);
+      return;
+    }
+    case "/flashsale": {
+      const salePrice = parsePrice(args[1] ?? "");
+      const hours = Number(args[2]);
+      if (salePrice === null || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 90) {
+        await sendMessage(chatId, "Usage: /flashsale slug 4.99 12   (sale price, then hours)");
+        return;
+      }
+      const { data: product } = await supabaseAdmin
+        .from("products")
+        .select("id, name, price")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!product) {
+        await sendMessage(chatId, "❌ No product with that slug.");
+        return;
+      }
+      if (salePrice >= Number(product.price)) {
+        await sendMessage(chatId, "❌ The sale price must be lower than the normal price.");
+        return;
+      }
+      const endsAt = new Date(Date.now() + hours * 3600_000).toISOString();
+      await supabaseAdmin
+        .from("products")
+        .update({ sale_price: salePrice, sale_ends_at: endsAt })
+        .eq("id", product.id);
+      await sendMessage(
+        chatId,
+        `🔥 Flash sale on ${product.name}: ${formatPrice(salePrice)} for ${hours}h (ends ${endsAt.slice(0, 16).replace("T", " ")} UTC).`,
+      );
+      return;
+    }
+    case "/flashsales": {
+      const { data: rows } = await supabaseAdmin
+        .from("products")
+        .select("slug, name, price, sale_price, sale_ends_at")
+        .not("sale_price", "is", null)
+        .limit(100);
+      const live = (rows ?? []).filter(
+        (p) =>
+          Number(p.sale_price) > 0 &&
+          Number(p.sale_price) < Number(p.price) &&
+          (!p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now()),
+      );
+      if (live.length === 0) {
+        await sendMessage(chatId, "No flash sales are running.");
+        return;
+      }
+      await sendMessage(
+        chatId,
+        [
+          "🔥 <b>Flash sales</b>",
+          "",
+          ...live.map(
+            (p) =>
+              `<code>${p.slug}</code> — ${p.name}: ${formatPrice(Number(p.sale_price))} (was ${formatPrice(Number(p.price))})${p.sale_ends_at ? ` · ends ${String(p.sale_ends_at).slice(0, 16).replace("T", " ")} UTC` : " · no end time"}`,
+          ),
+        ].join("\n"),
+        undefined,
+        true,
+      );
+      return;
+    }
+    case "/stopflashsale": {
+      const { error } = await supabaseAdmin
+        .from("products")
+        .update({ sale_price: null, sale_ends_at: null })
+        .eq("slug", slug);
+      await sendMessage(chatId, error ? `❌ ${error.message}` : `✅ Flash sale stopped for ${slug}.`);
+      return;
+    }
     case "/addproduct": {
       const parts = rest.trim().split("|").map((p) => p.trim());
       if (parts.length !== 4) {
@@ -582,7 +773,27 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     } else if (data.startsWith("product:")) {
       await productScreen(view, data.slice(8));
     } else if (data.startsWith("buy:")) {
-      await startCheckout(view, user, data.slice(4));
+      await quantityScreen(view, data.slice(4));
+    } else if (data.startsWith("qty:")) {
+      const [, slug, qty] = data.split(":");
+      await summaryScreen(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
+    } else if (data.startsWith("paybal:")) {
+      const [, slug, qty] = data.split(":");
+      await startCheckout(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
+    } else if (data.startsWith("pm:")) {
+      const [, slug, qty] = data.split(":");
+      await methodsScreen(view, slug ?? "", Math.max(1, Number(qty) || 1));
+    } else if (data.startsWith("pmx:")) {
+      const [, slug, qty, idx] = data.split(":");
+      await startCheckout(
+        view,
+        user,
+        slug ?? "",
+        Math.max(1, Number(qty) || 1),
+        Math.max(0, Number(idx) || 0),
+      );
+    } else if (data.startsWith("cx:")) {
+      await cancelOrder(view, user, data.slice(3));
     } else if (data.startsWith("orders")) {
       await ordersScreen(view, user);
     } else if (data.startsWith("balance")) {

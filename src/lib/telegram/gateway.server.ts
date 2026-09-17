@@ -76,6 +76,14 @@ export async function editMessageText(
   return Boolean(res?.ok);
 }
 
+/** Registers the command list shown in the Telegram "Menu" button. */
+export async function setMyCommands(
+  commands: { command: string; description: string }[],
+): Promise<boolean> {
+  const res = (await callTelegram("setMyCommands", { commands })) as { ok?: boolean } | null;
+  return Boolean(res?.ok);
+}
+
 export async function answerCallbackQuery(
   callbackQueryId: string,
   text?: string,

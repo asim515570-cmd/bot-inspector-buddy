@@ -18,6 +18,10 @@ export function SettingsPanel() {
   const [welcome, setWelcome] = useState("");
   const [support, setSupport] = useState("");
   const [payment, setPayment] = useState("");
+  const [methods, setMethods] = useState("");
+  const [percent, setPercent] = useState("");
+  const [minWithdraw, setMinWithdraw] = useState("");
+  const [botUsername, setBotUsername] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -25,6 +29,10 @@ export function SettingsPanel() {
     setWelcome(settingsQuery.data["welcome_message"] ?? "");
     setSupport(settingsQuery.data["support_contact"] ?? "");
     setPayment(settingsQuery.data["payment_instructions"] ?? "");
+    setMethods(settingsQuery.data["payment_methods"] ?? "");
+    setPercent(settingsQuery.data["referral_percent"] ?? "");
+    setMinWithdraw(settingsQuery.data["min_withdraw"] ?? "");
+    setBotUsername(settingsQuery.data["bot_username"] ?? "");
   }, [settingsQuery.data]);
 
   const onError = (e: unknown) => toast.error(e instanceof Error ? e.message : "Something went wrong.");
@@ -36,6 +44,10 @@ export function SettingsPanel() {
           welcome_message: welcome,
           support_contact: support,
           payment_instructions: payment,
+          payment_methods: methods,
+          referral_percent: percent,
+          min_withdraw: minWithdraw,
+          bot_username: botUsername,
         },
       }),
     onSuccess: (res) => toast.success(res.message),
@@ -66,6 +78,33 @@ export function SettingsPanel() {
           <div className="grid gap-1.5">
             <Label htmlFor="payment">Payment instructions</Label>
             <Textarea id="payment" rows={3} value={payment} onChange={(e) => setPayment(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="methods">Payment options</Label>
+            <Textarea
+              id="methods"
+              rows={6}
+              value={methods}
+              onChange={(e) => setMethods(e.target.value)}
+              placeholder={"Binance Pay | Send to ID 123456789\nUPI | Pay to shop@upi"}
+            />
+            <p className="text-xs text-muted-foreground">
+              One option per line: name, then a vertical bar, then the payment details the customer sees.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="percent">Referral reward (%)</Label>
+              <Input id="percent" value={percent} onChange={(e) => setPercent(e.target.value)} placeholder="5" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="minwd">Minimum payout</Label>
+              <Input id="minwd" value={minWithdraw} onChange={(e) => setMinWithdraw(e.target.value)} placeholder="10" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="botuser">Bot username</Label>
+              <Input id="botuser" value={botUsername} onChange={(e) => setBotUsername(e.target.value)} placeholder="myshopbot" />
+            </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="support">Support contact</Label>
