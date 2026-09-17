@@ -22,7 +22,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WithdrawalsPanel } from "@/components/admin/WithdrawalsPanel";
 import { StatsBar } from "@/components/admin/StatsBar";
 import { OrdersPanel } from "@/components/admin/OrdersPanel";
@@ -31,6 +30,8 @@ import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { StockPanel } from "@/components/admin/StockPanel";
 import { ReferralsPanel } from "@/components/admin/ReferralsPanel";
 import { BotPanel } from "@/components/admin/BotPanel";
+import { AdminShell, type AdminSection } from "@/components/admin/AdminShell";
+import { Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -84,6 +85,17 @@ const emptyDraft: Draft = {
   active: false,
 };
 
+const SECTION_META: Record<AdminSection, { title: string; description: string }> = {
+  products: { title: "Products", description: "Catalogue shown inside your Telegram shop." },
+  stock: { title: "Stock", description: "Codes available, reserved and delivered per product." },
+  orders: { title: "Orders", description: "Confirm payments and deliver orders." },
+  customers: { title: "Customers", description: "Balances, roles and access." },
+  referrals: { title: "Referrals", description: "Who invited whom and what they earned." },
+  payouts: { title: "Payouts", description: "Approve or reject withdrawal requests." },
+  bot: { title: "Bot", description: "Connection status and bot menu." },
+  settings: { title: "Settings", description: "Shop texts, payment options and links." },
+};
+
 function AdminPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -96,6 +108,7 @@ function AdminPage() {
   const removeStockItem = useServerFn(deleteStockItem);
   const clearStock = useServerFn(clearAvailableStock);
 
+  const [section, setSection] = useState<AdminSection>("products");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stockFor, setStockFor] = useState<AdminProduct | null>(null);
   const [stockText, setStockText] = useState("");
@@ -526,6 +539,6 @@ function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </main>
+    </AdminShell>
   );
 }
