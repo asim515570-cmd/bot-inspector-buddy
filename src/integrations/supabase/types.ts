@@ -14,7 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      telegram_updates: {
+        Row: {
+          chat_id: number | null
+          created_at: string
+          id: string
+          payload: Json
+          telegram_user_id: number | null
+          text: string | null
+          update_id: number | null
+        }
+        Insert: {
+          chat_id?: number | null
+          created_at?: string
+          id?: string
+          payload: Json
+          telegram_user_id?: number | null
+          text?: string | null
+          update_id?: number | null
+        }
+        Update: {
+          chat_id?: number | null
+          created_at?: string
+          id?: string
+          payload?: Json
+          telegram_user_id?: number | null
+          text?: string | null
+          update_id?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
