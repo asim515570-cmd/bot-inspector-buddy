@@ -466,7 +466,7 @@ export type Database = {
         Returns: number
       }
       place_order: {
-        Args: { p_bot_user: string; p_product: string }
+        Args: { p_bot_user: string; p_product: string; p_qty?: number }
         Returns: string
       }
       release_order: {
