@@ -641,7 +641,27 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     } else if (data.startsWith("product:")) {
       await productScreen(view, data.slice(8));
     } else if (data.startsWith("buy:")) {
-      await startCheckout(view, user, data.slice(4));
+      await quantityScreen(view, data.slice(4));
+    } else if (data.startsWith("qty:")) {
+      const [, slug, qty] = data.split(":");
+      await summaryScreen(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
+    } else if (data.startsWith("paybal:")) {
+      const [, slug, qty] = data.split(":");
+      await startCheckout(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
+    } else if (data.startsWith("pm:")) {
+      const [, slug, qty] = data.split(":");
+      await methodsScreen(view, slug ?? "", Math.max(1, Number(qty) || 1));
+    } else if (data.startsWith("pmx:")) {
+      const [, slug, qty, idx] = data.split(":");
+      await startCheckout(
+        view,
+        user,
+        slug ?? "",
+        Math.max(1, Number(qty) || 1),
+        Math.max(0, Number(idx) || 0),
+      );
+    } else if (data.startsWith("cx:")) {
+      await cancelOrder(view, user, data.slice(3));
     } else if (data.startsWith("orders")) {
       await ordersScreen(view, user);
     } else if (data.startsWith("balance")) {
