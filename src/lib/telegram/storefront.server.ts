@@ -124,45 +124,144 @@ const navRow = (extra: InlineButton[] = []): InlineButton[][] => [
 // ------------------------------------------------------------------ screens
 
 export async function mainMenu(view: View, user: ShopUser): Promise<void> {
-  const [welcome, { data: me }, { count: orderCount }, { count: productCount }] =
+  const [storeName, welcome, channel, group, terms, notice, { data: me }] =
     await Promise.all([
-      setting("welcome_message", "Welcome to the shop!"),
-      supabaseAdmin.from("bot_users").select("balance").eq("id", user.id).maybeSingle(),
+      setting("store_name", "our store"),
+      setting(
+        "welcome_message",
+        "We offer premium digital products at the best prices. Fast, secure, and fully automated delivery.",
+      ),
+      setting("channel_url", ""),
+      setting("group_url", ""),
+      setting("terms_url", ""),
+      setting("notice", ""),
       supabaseAdmin
-        .from("orders")
-        .select("id", { count: "exact", head: true })
-        .eq("bot_user_id", user.id),
-      supabaseAdmin
-        .from("products")
-        .select("id", { count: "exact", head: true })
-        .eq("active", true),
+        .from("bot_users")
+        .select("balance, first_name")
+        .eq("id", user.id)
+        .maybeSingle(),
     ]);
 
+  const name = (me?.first_name ?? "").trim() || "there";
+  const lines = [
+    `🏪 <b>Welcome to ${esc(storeName)}!</b>`,
+    "",
+    `Hey ${esc(name)}! 👋`,
+    "",
+    esc(welcome),
+    "",
+    "<blockquote>🛍 <b>Shop</b> — Browse &amp; buy products",
+    "💳 <b>Deposit</b> — Add funds to your wallet",
+    "👤 <b>My Profile</b> — Balance, orders &amp; settings",
+    "🛰 <b>Developer API</b> — Reseller &amp; automated ordering",
+    "⭐ <b>Refer &amp; Earn</b> — Invite friends &amp; earn rewards</blockquote>",
+  ];
+  if (channel) lines.push("", `📣 Channel: <a href="${esc(channel)}">Join Channel</a>`);
+  if (group) lines.push(`💬 Group: <a href="${esc(group)}">Join Group Chat</a>`);
+  if (terms) lines.push("", `Terms of Service: <a href="${esc(terms)}">Read here</a>`);
+  if (notice) lines.push("", `<blockquote>⚠️ <b>Notification</b>\n${esc(notice)}</blockquote>`);
+  lines.push(
+    "",
+    `💰 Wallet balance: <b>${formatPrice(Number(me?.balance ?? 0))}</b>`,
+    "",
+    "Choose an option below to continue!",
+  );
+
+  await render(view, lines.join("\n"), [
+    [{ text: "🛍 Shop", callback_data: "shop" }],
+    [
+      { text: "👤 My Profile", callback_data: "profile" },
+      { text: "💳 Deposit", callback_data: "deposit" },
+    ],
+    [{ text: "🛰 Developer API", callback_data: "api" }],
+    [{ text: "🆘 Support", callback_data: "support" }],
+    [{ text: "⭐ Refer & Earn", callback_data: "refer" }],
+  ]);
+}
+
+/** Account overview: balance, orders, referral earnings. */
+export async function profileScreen(view: View, user: ShopUser): Promise<void> {
+  const [{ data: me }, { data: orders }] = await Promise.all([
+    supabaseAdmin
+      .from("bot_users")
+      .select("balance, referral_earned, referral_code, created_at, telegram_id, username")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabaseAdmin.from("orders").select("status, total_price").eq("bot_user_id", user.id),
+  ]);
+  const rows = orders ?? [];
+  const spent = rows
+    .filter((o) => o.status === "delivered" || o.status === "paid")
+    .reduce((s, o) => s + Number(o.total_price ?? 0), 0);
+
   const text = [
-    `🛍 <b>${esc(welcome)}</b>`,
+    "👤 <b>My Profile</b>",
     "",
+    `🆔 Telegram ID: <code>${me?.telegram_id ?? user.telegram_id}</code>`,
     `💰 Balance: <b>${formatPrice(Number(me?.balance ?? 0))}</b>`,
-    `🧾 Orders: <b>${orderCount ?? 0}</b>`,
-    `📦 Products in shop: <b>${productCount ?? 0}</b>`,
-    "",
-    "<i>Instant delivery · stock checked in real time</i>",
+    `🧾 Orders: <b>${rows.length}</b>`,
+    `💸 Total spent: <b>${formatPrice(spent)}</b>`,
+    `⭐ Referral earnings: <b>${formatPrice(Number(me?.referral_earned ?? 0))}</b>`,
+    `🔗 Referral code: <code>${esc(me?.referral_code ?? "-")}</code>`,
   ].join("\n");
 
   await render(view, text, [
-    [{ text: "🛍 Browse Shop", callback_data: "shop" }],
     [
       { text: "🧾 My Orders", callback_data: "orders" },
       { text: "💰 Balance", callback_data: "balance" },
     ],
     [
-      { text: "🤝 Refer & earn", callback_data: "refer" },
       { text: "🏦 Withdraw", callback_data: "withdraw" },
+      { text: "⭐ Refer & Earn", callback_data: "refer" },
     ],
-    [
-      { text: "🆘 Support", callback_data: "support" },
-      { text: "ℹ️ How it works", callback_data: "how" },
-    ],
+    [{ text: "🏠 Main Menu", callback_data: "menu" }],
   ]);
+}
+
+/** How to top up the wallet — instructions come from the dashboard settings. */
+export async function depositScreen(view: View, user: ShopUser): Promise<void> {
+  const [methods, instructions, { data: me }] = await Promise.all([
+    paymentMethods(),
+    setting("payment_instructions", "Contact support to top up your wallet."),
+    supabaseAdmin.from("bot_users").select("balance").eq("id", user.id).maybeSingle(),
+  ]);
+
+  const lines = [
+    "💳 <b>Deposit funds</b>",
+    "",
+    `Current balance: <b>${formatPrice(Number(me?.balance ?? 0))}</b>`,
+    "",
+    esc(instructions),
+  ];
+  if (methods.length > 0) {
+    lines.push("", "<b>Accepted methods</b>");
+    for (const m of methods) lines.push(`• <b>${esc(m.label)}</b> — ${esc(m.instructions)}`);
+  }
+  lines.push(
+    "",
+    "<i>After paying, send the transaction ID with /pay &lt;reference&gt; — an admin verifies it and your balance is credited.</i>",
+  );
+
+  await render(view, lines.join("\n"), [
+    [{ text: "🆘 Support", callback_data: "support" }],
+    [{ text: "🏠 Main Menu", callback_data: "menu" }],
+  ]);
+}
+
+/** Reseller / API information screen. */
+export async function apiScreen(view: View): Promise<void> {
+  const info = await setting(
+    "api_info",
+    "Automated ordering for resellers is available on request. Contact support with your expected monthly volume and we will set up an API key for your account.",
+  );
+  await render(
+    view,
+    ["🛰 <b>Developer API</b>", "", esc(info)].join("\n"),
+    [
+      [{ text: "🆘 Support", callback_data: "support" }],
+      [{ text: "🏠 Main Menu", callback_data: "menu" }],
+    ],
+  );
 }
 
 export async function categoriesScreen(view: View): Promise<void> {
