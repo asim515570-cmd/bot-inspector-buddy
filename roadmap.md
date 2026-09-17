@@ -44,3 +44,4 @@ Do not copy the original project's source or exact wording.
 - [ ] New welcome screen layout (Shop / My Profile / Deposit / Developer API / Support / Refer & Earn) per screenshot
 - [ ] Replace demo catalogue with real products + real stock (admin supplies payloads)
 - [x] Add clearly labelled random testing stock and confirm every product has a description
+- [x] Remove the Telegram category chooser; Shop now opens the complete paginated product list

@@ -774,7 +774,8 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
     if (data === "menu" || data.startsWith("start")) {
       await mainMenu(view, user);
     } else if (data === "shop" || data.startsWith("browse")) {
-      await categoriesScreen(view);
+      const page = data.startsWith("browse:") ? Number(data.split(":")[1]) || 0 : 0;
+      await categoriesScreen(view, Math.max(0, page));
     } else if (data.startsWith("cat:")) {
       const [, idx, page] = data.split(":");
       await categoryScreen(view, Number(idx) || 0, Math.max(0, Number(page) || 0));
@@ -912,7 +913,7 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
         [
           "Commands:",
           "/start — main menu",
-          "/shop — browse categories",
+          "/shop — browse products",
           "/orders — your orders",
           "/balance — your balance",
           "/pay <order id> <transaction ref> — submit a payment",
