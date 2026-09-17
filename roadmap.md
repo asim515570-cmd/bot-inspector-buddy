@@ -36,3 +36,6 @@ Do not copy the original project's source or exact wording.
 - [x] Dashboard: edit category, sale price, delivery note, sort order, payment methods
 - [x] Full command menu (setMyCommands): /start /menu /help /admin /products /addproduct /setprice /flashsale /flashsales /stopflashsale /setactive /setdesc /setemoji /addstock /stock /clearstock /delproduct /payments /approve_pay /redeliver_pay /reject_pay /withdrawals /approve_wd /reject_wd /whois /credit /debit /ban /unban /broadcast /backup
 - [x] New admin commands: /admin help, /products, /flashsale (timed sale price), /flashsales, /stopflashsale, /redeliver_pay, /backup
+
+## Sep 18 (live)
+- [ ] Publish app and register Telegram webhook so real orders/payments/referrals reach the dashboard
