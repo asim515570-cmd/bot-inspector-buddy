@@ -70,6 +70,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           console.error("[telegram] failed to persist update", err);
         }
 
+        try {
+          const { handleUpdate } = await import("@/lib/telegram/bot.server");
+          await handleUpdate(update as never);
+        } catch (err) {
+          console.error("[telegram] handler error", err);
+        }
+
         // Always 200 quickly so Telegram does not retry.
         return new Response("ok", { status: 200 });
       },
