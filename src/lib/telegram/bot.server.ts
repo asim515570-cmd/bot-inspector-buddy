@@ -157,8 +157,14 @@ async function getProduct(slug: string) {
 
 // ---------------------------------------------------------------- customer
 
-/** Creates an order: reserves one unit atomically, then pays from balance if possible. */
-async function startCheckout(view: View, user: BotUser, slug: string) {
+/** Creates an order: reserves the units atomically, then pays from balance if possible. */
+async function startCheckout(
+  view: View,
+  user: BotUser,
+  slug: string,
+  qty = 1,
+  methodIndex?: number,
+) {
   const chatId = view.chatId;
   const product = await getProduct(slug);
   if (!product || !product.active) {
@@ -169,6 +175,7 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
   const { data: orderId, error } = await supabaseAdmin.rpc("place_order", {
     p_bot_user: user.id,
     p_product: product.id,
+    p_qty: qty,
   });
 
   if (error) {
@@ -179,7 +186,7 @@ async function startCheckout(view: View, user: BotUser, slug: string) {
     return;
   }
 
-  const price = effectivePrice(product);
+  const price = effectivePrice(product) * qty;
   const { data: me } = await supabaseAdmin
     .from("bot_users")
     .select("balance")
