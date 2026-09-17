@@ -40,8 +40,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           typeof update["update_id"] === "number"
             ? (update["update_id"] as number)
             : null;
+        type TgMessage = {
+          from?: { id?: number };
+          chat?: { id?: number };
+          text?: string;
+        };
         const message = (update["message"] ?? update["edited_message"]) as
-          | Record<string, any>
+          | TgMessage
           | undefined;
 
         console.log(
@@ -59,7 +64,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             telegram_user_id: message?.from?.id ?? null,
             chat_id: message?.chat?.id ?? null,
             text: message?.text ?? null,
-            payload: update,
+            payload: update as Record<string, unknown> as never,
           });
         } catch (err) {
           console.error("[telegram] failed to persist update", err);
