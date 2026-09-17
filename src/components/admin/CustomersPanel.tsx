@@ -72,7 +72,12 @@ export function CustomersPanel() {
       toast.error("Enter an amount, for example 10 to add or -10 to remove.");
       return;
     }
-    mutation.mutate({ id: walletFor!.id, balanceDelta: value, reason: reason.trim() || undefined });
+    const trimmed = reason.trim();
+    mutation.mutate({
+      id: walletFor!.id,
+      balanceDelta: value,
+      ...(trimmed ? { reason: trimmed } : {}),
+    });
     setAmount("");
     setReason("");
   }

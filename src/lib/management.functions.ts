@@ -272,14 +272,18 @@ export const updateCustomer = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!user) throw new Error("That customer no longer exists.");
 
-    const patch: Record<string, unknown> = {};
-    if (data.role) patch["role"] = data.role;
-    if (typeof data.isBlocked === "boolean") patch["is_blocked"] = data.isBlocked;
+    const patch: {
+      role?: "admin" | "customer";
+      is_blocked?: boolean;
+      balance?: number;
+    } = {};
+    if (data.role) patch.role = data.role;
+    if (typeof data.isBlocked === "boolean") patch.is_blocked = data.isBlocked;
 
     if (data.balanceDelta) {
       const next = Number(user.balance) + data.balanceDelta;
       if (next < 0) throw new Error("That would take the balance below zero.");
-      patch["balance"] = next;
+      patch.balance = next;
     }
 
     if (Object.keys(patch).length === 0) return { message: "Nothing to change." };
@@ -290,7 +294,7 @@ export const updateCustomer = createServerFn({ method: "POST" })
       await db.from("wallet_transactions").insert({
         bot_user_id: data.id,
         amount: data.balanceDelta,
-        balance_after: Number(patch["balance"]),
+        balance_after: Number(patch.balance),
         reason: data.reason || "Manual adjustment by admin",
       });
     }
