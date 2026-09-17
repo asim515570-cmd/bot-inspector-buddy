@@ -25,8 +25,8 @@ export function OverviewPanel() {
   const a = analytics.data;
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Revenue (7 days)", value: money(a?.revenue7d ?? 0) },
           { label: "Revenue (30 days)", value: money(a?.revenue30d ?? 0) },
@@ -34,16 +34,16 @@ export function OverviewPanel() {
           { label: "New customers (7 days)", value: String(a?.newCustomers7d ?? 0) },
         ].map((s) => (
           <Card key={s.label}>
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-              <p className="font-display text-2xl font-semibold">{s.value}</p>
+            <CardContent className="p-5">
+              <p className="text-sm font-medium text-muted-foreground">{s.label}</p>
+              <p className="mt-2 font-display text-2xl font-semibold">{s.value}</p>
             </CardContent>
           </Card>
         ))}
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b border-border pb-4">
           <CardTitle>Sales — last 14 days</CardTitle>
           <CardDescription>Paid and delivered orders only.</CardDescription>
         </CardHeader>
@@ -103,7 +103,7 @@ export function OverviewPanel() {
             <CardTitle>Best sellers</CardTitle>
             <CardDescription>By revenue over the last 30 days.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-2 pt-5">
             {(a?.topProducts ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">No sales yet.</p>
             ) : null}
@@ -126,7 +126,7 @@ export function OverviewPanel() {
             <CardTitle>Recent admin activity</CardTitle>
             <CardDescription>Every dashboard action is recorded.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-2 pt-5">
             {(activity.data ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing yet.</p>
             ) : null}
