@@ -90,6 +90,16 @@ async function stockCounts(productIds: string[]): Promise<Map<string, number>> {
   return counts;
 }
 
+/** How many units of a product have been delivered so far. */
+async function soldCount(productId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("stock_items")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("status", "delivered");
+  return count ?? 0;
+}
+
 export async function listCategories(): Promise<string[]> {
   const { data } = await supabaseAdmin
     .from("products")
