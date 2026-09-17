@@ -1,24 +1,32 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Telegram Shop — Admin" },
+      { name: "description", content: "Manage the products and stock of your Telegram storefront bot." },
+      { property: "og:title", content: "Telegram Shop — Admin" },
+      { property: "og:description", content: "Manage the products and stock of your Telegram storefront bot." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-muted/30 px-4 text-center">
+      <div className="space-y-3">
+        <h1 className="text-3xl font-semibold tracking-tight">Telegram Shop</h1>
+        <p className="max-w-md text-muted-foreground">
+          Your storefront lives in Telegram. Products and stock are managed here.
+        </p>
+      </div>
+      <Button asChild size="lg">
+        <Link to="/admin">Open admin dashboard</Link>
+      </Button>
+    </main>
   );
 }
