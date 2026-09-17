@@ -16,27 +16,36 @@ export type Database = {
     Tables: {
       bot_users: {
         Row: {
+          balance: number
           created_at: string
           first_name: string | null
           id: string
+          is_blocked: boolean
+          last_seen_at: string
           role: Database["public"]["Enums"]["app_role"]
           telegram_id: number
           updated_at: string
           username: string | null
         }
         Insert: {
+          balance?: number
           created_at?: string
           first_name?: string | null
           id?: string
+          is_blocked?: boolean
+          last_seen_at?: string
           role?: Database["public"]["Enums"]["app_role"]
           telegram_id: number
           updated_at?: string
           username?: string | null
         }
         Update: {
+          balance?: number
           created_at?: string
           first_name?: string | null
           id?: string
+          is_blocked?: boolean
+          last_seen_at?: string
           role?: Database["public"]["Enums"]["app_role"]
           telegram_id?: number
           updated_at?: string
@@ -46,22 +55,52 @@ export type Database = {
       }
       orders: {
         Row: {
+          admin_note: string | null
           bot_user_id: string
           created_at: string
+          delivered_at: string | null
           id: string
+          paid_at: string | null
+          payment_method: string | null
+          payment_reference: string | null
+          product_id: string | null
+          quantity: number
           status: string
+          total_price: number
+          unit_price: number
+          updated_at: string
         }
         Insert: {
+          admin_note?: string | null
           bot_user_id: string
           created_at?: string
+          delivered_at?: string | null
           id?: string
+          paid_at?: string | null
+          payment_method?: string | null
+          payment_reference?: string | null
+          product_id?: string | null
+          quantity?: number
           status?: string
+          total_price?: number
+          unit_price?: number
+          updated_at?: string
         }
         Update: {
+          admin_note?: string | null
           bot_user_id?: string
           created_at?: string
+          delivered_at?: string | null
           id?: string
+          paid_at?: string | null
+          payment_method?: string | null
+          payment_reference?: string | null
+          product_id?: string | null
+          quantity?: number
           status?: string
+          total_price?: number
+          unit_price?: number
+          updated_at?: string
         }
         Relationships: [
           {
@@ -69,6 +108,13 @@ export type Database = {
             columns: ["bot_user_id"]
             isOneToOne: false
             referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
             referencedColumns: ["id"]
           },
         ]
@@ -106,6 +152,24 @@ export type Database = {
           price?: number
           slug?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      shop_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
         }
         Relationships: []
       }
@@ -205,17 +269,76 @@ export type Database = {
         }
         Relationships: []
       }
+      wallet_transactions: {
+        Row: {
+          amount: number
+          balance_after: number
+          bot_user_id: string
+          created_at: string
+          id: string
+          order_id: string | null
+          reason: string
+        }
+        Insert: {
+          amount: number
+          balance_after: number
+          bot_user_id: string
+          created_at?: string
+          id?: string
+          order_id?: string | null
+          reason: string
+        }
+        Update: {
+          amount?: number
+          balance_after?: number
+          bot_user_id?: string
+          created_at?: string
+          id?: string
+          order_id?: string | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallet_transactions_bot_user_id_fkey"
+            columns: ["bot_user_id"]
+            isOneToOne: false
+            referencedRelation: "bot_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_transactions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      deliver_order: {
+        Args: { p_order: string }
+        Returns: {
+          payload: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      place_order: {
+        Args: { p_bot_user: string; p_product: string }
+        Returns: string
+      }
+      release_order: {
+        Args: { p_order: string; p_status: string }
+        Returns: undefined
       }
     }
     Enums: {

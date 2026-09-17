@@ -22,6 +22,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StatsBar } from "@/components/admin/StatsBar";
+import { OrdersPanel } from "@/components/admin/OrdersPanel";
+import { CustomersPanel } from "@/components/admin/CustomersPanel";
+import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import {
   Dialog,
   DialogContent,
@@ -184,19 +189,41 @@ function AdminPage() {
   const products = productsQuery.data ?? [];
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-5xl px-4 py-8">
-      <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
+    <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Products &amp; stock</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Shop management</h1>
           <p className="text-sm text-muted-foreground">Everything here is live in your Telegram shop.</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => setDraft({ ...emptyDraft })}>Add product</Button>
-          <Button variant="ghost" onClick={signOut}>
-            Sign out
-          </Button>
-        </div>
+        <Button variant="ghost" onClick={signOut}>
+          Sign out
+        </Button>
       </header>
+
+      <StatsBar />
+
+      <Tabs defaultValue="products">
+        <TabsList className="mb-4">
+          <TabsTrigger value="products">Products</TabsTrigger>
+          <TabsTrigger value="orders">Orders</TabsTrigger>
+          <TabsTrigger value="customers">Customers</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="orders">
+          <OrdersPanel />
+        </TabsContent>
+        <TabsContent value="customers">
+          <CustomersPanel />
+        </TabsContent>
+        <TabsContent value="settings">
+          <SettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="products">
+      <div className="mb-4">
+        <Button onClick={() => setDraft({ ...emptyDraft })}>Add product</Button>
+      </div>
 
       {productsQuery.isLoading && <p className="text-muted-foreground">Loading products…</p>}
       {!productsQuery.isLoading && products.length === 0 && (
@@ -255,6 +282,9 @@ function AdminPage() {
           </Card>
         ))}
       </div>
+
+        </TabsContent>
+      </Tabs>
 
       {/* Product editor */}
       <Dialog open={!!draft} onOpenChange={(o) => !o && setDraft(null)}>
