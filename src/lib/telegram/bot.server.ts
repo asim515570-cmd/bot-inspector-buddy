@@ -37,6 +37,9 @@ import {
   summaryScreen,
   supportScreen,
   type View,
+  profileScreen,
+  depositScreen,
+  apiScreen,
 } from "./storefront.server";
 import {
   OPS_COMMANDS,
