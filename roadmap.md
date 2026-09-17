@@ -53,3 +53,14 @@ Do not copy the original project's source or exact wording.
 - [x] Enable Telegram’s permanent chat Menu button and re-sync bot commands
 
 - [x] Show only /start, /menu, /help to customers and scope admin commands to current Telegram admins
+
+## Security hardening (done 2026-09-17)
+- Removed self-service admin bootstrap; roles only granted by an existing admin.
+- Shared `src/lib/security.server.ts`: DB-backed admin check, per-account + per-action rate limits, audit log, safe error wrapper.
+- Rate limits on product save/delete, stock add/delete/clear, order update, customer update, settings, broadcast, payout decisions, bot sync.
+- Audit log entries for product/stock/customer changes and denied admin attempts.
+- Raw database errors no longer returned to the browser.
+- Security headers (CSP, HSTS, nosniff, frame, referrer, permissions) on every response.
+- DB: unique `telegram_updates.update_id` (replay/duplicate protection), check constraints on prices, quantities, balances, payout amounts and statuses.
+
+Still outside app control: external pen-testing, provider-level DDoS/WAF, Telegram account security (2FA on the bot owner account).
