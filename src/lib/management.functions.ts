@@ -379,6 +379,18 @@ export const updateCustomer = createServerFn({ method: "POST" })
         reason: data.reason || "Manual adjustment by admin",
       });
     }
+    await logActivity(
+      actorOf(context),
+      data.role ? "customer:role" : typeof data.isBlocked === "boolean" ? "customer:block" : "customer:balance",
+      [
+        `user ${data.id}`,
+        data.role ? `role=${data.role}` : null,
+        typeof data.isBlocked === "boolean" ? `blocked=${data.isBlocked}` : null,
+        data.balanceDelta ? `balance ${data.balanceDelta > 0 ? "+" : ""}${data.balanceDelta}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
     return { message: "Customer updated." };
   });
 
