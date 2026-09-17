@@ -235,13 +235,14 @@ export const deleteStockItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "stock:delete", 60);
     const db = await admin();
     const { data: row } = await db.from("stock_items").select("status").eq("id", data.id).maybeSingle();
     if (!row) throw new Error("That stock item no longer exists.");
     if (row.status !== "available") throw new Error("Only unsold stock can be removed.");
     const { error } = await db.from("stock_items").delete().eq("id", data.id).eq("status", "available");
-    if (error) throw dbFail(error);
+    if (error) throw dbFail(error, "Could not remove this stock item. Please try again.");
+    await audit(context, "stock:delete", data.id);
     return { ok: true };
   });
 
@@ -249,13 +250,14 @@ export const clearAvailableStock = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ productId: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "stock:clear", 10);
     const db = await admin();
     const { error, count } = await db
       .from("stock_items")
       .delete({ count: "exact" })
       .eq("product_id", data.productId)
       .eq("status", "available");
-    if (error) throw dbFail(error);
+    if (error) throw dbFail(error, "Could not clear stock. Please try again.");
+    await audit(context, "stock:clear", `${count ?? 0} removed from ${data.productId}`);
     return { removed: count ?? 0 };
   });
