@@ -164,7 +164,7 @@ export const updateOrder = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "order:update", 60);
     const db = await admin();
     const { data: order } = await db
       .from("orders")
@@ -328,7 +328,7 @@ export const updateCustomer = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "customer:update", 40);
     const db = await admin();
     const { data: user } = await db
       .from("bot_users")
@@ -435,7 +435,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "settings:save", 20);
     const db = await admin();
     const rows = Object.entries(data)
       .filter(([, value]) => value !== undefined)
@@ -452,7 +452,7 @@ export const broadcast = createServerFn({ method: "POST" })
     z.object({ text: z.string().trim().min(1).max(3000) }).parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "broadcast", 3);
     const db = await admin();
     const { data: users } = await db
       .from("bot_users")
@@ -526,7 +526,7 @@ export const decideWithdrawal = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "payout:decide", 40);
     const db = await admin();
     const { data: row } = await db
       .from("withdrawals")
@@ -663,7 +663,7 @@ export const getBotStatus = createServerFn({ method: "GET" })
 export const syncBotCommands = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context);
+    await assertAdminAction(context, "bot:sync", 10);
     const { registerBotCommands } = await import("@/lib/telegram/commands.server");
     const ok = await registerBotCommands();
     if (!ok) throw new Error("Telegram did not accept the command list. Check the bot connection.");
