@@ -33,3 +33,5 @@ Do not copy the original project's source or exact wording.
 - [ ] Payment method screen: methods configurable from dashboard, per-method instructions screen with Back / Cancel Order
 - [ ] Bot command menu: /start /menu /help via setMyCommands
 - [ ] Dashboard: edit category, sale price, delivery note, sort order, payment methods
+- [ ] Full command menu (setMyCommands): /start /menu /help /admin /products /addproduct /setprice /flashsale /flashsales /stopflashsale /setactive /setdesc /setemoji /addstock /stock /clearstock /delproduct /payments /approve_pay /redeliver_pay /reject_pay /withdrawals /approve_wd /reject_wd /whois /credit /debit /ban /unban /broadcast /backup
+- [ ] New admin commands: /admin help, /products, /flashsale (timed sale price), /flashsales, /stopflashsale, /redeliver_pay, /backup
