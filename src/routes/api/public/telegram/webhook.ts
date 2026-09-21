@@ -44,10 +44,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           | TgMessage
           | undefined;
 
+        // Logs metadata only — never the message text itself, which can
+        // contain a payment reference, a payout address, or anything else a
+        // customer typed.
         console.log(
           `[telegram] update ${updateId ?? "?"} from ${
             message?.from?.id ?? "unknown"
-          }: ${message?.text ?? "(non-text update)"}`,
+          } (${message?.text ? "text" : "non-text"} update)`,
         );
 
         // Replay / duplicate protection: `update_id` is unique in the database,

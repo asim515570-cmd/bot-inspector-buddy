@@ -53,7 +53,10 @@ export async function sendMessage(
   keyboard?: InlineButton[][],
   html = false,
 ): Promise<number | null> {
-  console.log(`[telegram] -> chat ${chatId}: ${text.replace(/\n/g, " | ")}`);
+  // Logs metadata only (chat id + length) — the message body itself can
+  // contain order details, payment references or payout addresses and must
+  // never be written to server logs.
+  console.log(`[telegram] -> chat ${chatId} (${text.length} chars)`);
   const res = (await callTelegram("sendMessage", {
     chat_id: chatId,
     text,
