@@ -59,31 +59,31 @@ export function StockPanel() {
           {rows.map((r) => (
             <div
               key={r.product_id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+              className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4"
             >
-              <div>
-                <p className="font-medium">
-                  {r.emoji ? `${r.emoji} ` : ""}
-                  {r.name}
-                  {!r.active ? (
-                    <Badge variant="outline" className="ml-2">
-                      hidden
-                    </Badge>
-                  ) : null}
-                  {r.active && r.available === 0 ? (
-                    <Badge variant="destructive" className="ml-2">
-                      sold out
-                    </Badge>
-                  ) : null}
-                </p>
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium leading-none">
+                    {r.emoji ? `${r.emoji} ` : ""}
+                    {r.name}
+                  </span>
+                  {!r.active ? <Badge variant="outline">hidden</Badge> : null}
+                  {r.active && r.available === 0 ? <Badge variant="destructive">sold out</Badge> : null}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  {r.slug} · {r.price.toFixed(2)}
+                  <span className="font-mono">{r.slug}</span> · {r.price.toFixed(2)}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant="default">available {r.available}</Badge>
-                <Badge variant="secondary">reserved {r.reserved}</Badge>
-                <Badge variant="outline">delivered {r.delivered}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="default" className="font-normal">
+                  Available <span className="ml-1 font-semibold">{r.available}</span>
+                </Badge>
+                <Badge variant="secondary" className="font-normal">
+                  Reserved <span className="ml-1 font-semibold">{r.reserved}</span>
+                </Badge>
+                <Badge variant="outline" className="font-normal">
+                  Delivered <span className="ml-1 font-semibold">{r.delivered}</span>
+                </Badge>
                 <Button
                   size="sm"
                   variant="secondary"
