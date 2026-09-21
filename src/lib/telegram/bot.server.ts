@@ -547,15 +547,21 @@ async function handleAdminCommand(
       return;
     }
     case "/addproduct": {
+      const usage =
+        "🆕 Add a product\n\n" +
+        "Format:\n/addproduct slug | Name | emoji | price\n\n" +
+        "Example:\n/addproduct gift-card | Gift Card | 🎁 | 9.99\n\n" +
+        "• slug — short id (a-z, 0-9, - or _)\n" +
+        "• Name — shown in the shop\n" +
+        "• emoji — optional, send - to skip\n" +
+        "• price — e.g. 9.99";
       const parts = rest.trim().split("|").map((p) => p.trim());
       if (parts.length !== 4) {
-        await sendMessage(
-          chatId,
-          "Usage: /addproduct slug|Name|emoji|price\nExample: /addproduct gift-card|Gift Card|🎁|9.99",
-        );
+        await sendMessage(chatId, usage);
         return;
       }
-      const [newSlug, name, emoji, priceRaw] = parts as [string, string, string, string];
+      const [newSlug, name, emojiRaw, priceRaw] = parts as [string, string, string, string];
+      const emoji = emojiRaw === "-" ? "" : emojiRaw;
       if (!isValidSlug(newSlug)) {
         await sendMessage(
           chatId,
@@ -568,7 +574,7 @@ async function handleAdminCommand(
         return;
       }
       if (emoji && !isValidEmoji(emoji)) {
-        await sendMessage(chatId, "❌ Invalid emoji (use an emoji or a custom emoji id).");
+        await sendMessage(chatId, "❌ Invalid emoji (use an emoji, or - to skip).");
         return;
       }
       const price = parsePrice(priceRaw);
@@ -584,7 +590,7 @@ async function handleAdminCommand(
         name,
         emoji: emoji || null,
         price,
-        active: false,
+        active: true,
       });
       if (error) {
         await sendMessage(
@@ -598,10 +604,14 @@ async function handleAdminCommand(
       await logBotAdmin(chatId, "product:create", `${newSlug} at ${formatPrice(price)}`);
       await sendMessage(
         chatId,
-        `✅ Created "${name}" (${newSlug}) at ${formatPrice(price)}. It is inactive until you add stock and run /setactive ${newSlug} on.`,
+        `✅ Created "${name}" (${newSlug}) at ${formatPrice(price)}.\n\n` +
+          `It is live on the website and in the shop now.\n` +
+          `Add stock: /addstock ${newSlug} CODE1 CODE2\n` +
+          `Hide it: /setactive ${newSlug} off`,
       );
       return;
     }
+
 
     case "/setprice": {
       const price = parsePrice(args[1] ?? "");
