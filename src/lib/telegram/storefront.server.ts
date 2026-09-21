@@ -99,6 +99,20 @@ async function stockCounts(productIds: string[]): Promise<Map<string, number>> {
   return counts;
 }
 
+/**
+ * Available stock count for a single product. Unlike stockCounts (which has
+ * to pull one row per item to tally several products at once), a single
+ * product only needs a database-side count — no rows are transferred.
+ */
+async function availableStockCount(productId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("stock_items")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("status", "available");
+  return count ?? 0;
+}
+
 /** How many units of a product have been delivered so far. */
 async function soldCount(productId: string): Promise<number> {
   const { count } = await supabaseAdmin
@@ -408,12 +422,15 @@ export async function productScreen(view: View, slug: string): Promise<void> {
     return;
   }
 
-  const counts = await stockCounts([product.id]);
-  const stock = counts.get(product.id) ?? 0;
-  const sold = await soldCount(product.id);
+  // Stock count, sold count and the category list are all independent of
+  // one another once we have the product — one round trip instead of three.
+  const [stock, sold, categories] = await Promise.all([
+    availableStockCount(product.id),
+    soldCount(product.id),
+    listCategories(),
+  ]);
   const now = effectivePrice(product);
   const base = Number(product.price);
-  const categories = await listCategories();
   const categoryIndex = categories.indexOf(product.category);
 
   const lines = [
@@ -484,7 +501,7 @@ export async function quantityScreen(view: View, slug: string): Promise<void> {
     ]);
     return;
   }
-  const stock = (await stockCounts([product.id])).get(product.id) ?? 0;
+  const stock = await availableStockCount(product.id);
   if (stock === 0) {
     await render(view, "😔 <b>That product just sold out.</b>", [
       [{ text: "🛍 Shop", callback_data: "shop" }],
@@ -543,7 +560,12 @@ export async function summaryScreen(
     ]);
     return;
   }
-  const stock = (await stockCounts([product.id])).get(product.id) ?? 0;
+  // Stock check and the buyer's balance are independent lookups (one keys
+  // off the product, the other off the user) — fetch both at once.
+  const [stock, me] = await Promise.all([
+    availableStockCount(product.id),
+    supabaseAdmin.from("bot_users").select("balance").eq("id", user.id).maybeSingle().then((r) => r.data),
+  ]);
   if (qty > stock) {
     await render(view, `😔 <b>Only ${stock} left.</b> Pick a smaller quantity.`, [
       [{ text: "⬅️ Back", callback_data: `buy:${product.slug}` }],
@@ -552,11 +574,6 @@ export async function summaryScreen(
   }
   const price = effectivePrice(product);
   const total = price * qty;
-  const { data: me } = await supabaseAdmin
-    .from("bot_users")
-    .select("balance")
-    .eq("id", user.id)
-    .maybeSingle();
   const balance = Number(me?.balance ?? 0);
 
   const rows: InlineButton[][] = [];
@@ -589,12 +606,15 @@ export async function summaryScreen(
 }
 
 export async function methodsScreen(view: View, slug: string, qty: number): Promise<void> {
-  const methods = await paymentMethods();
-  const { data } = await supabaseAdmin
-    .from("products")
-    .select("name, emoji, price, sale_price, sale_ends_at")
-    .eq("slug", slug)
-    .maybeSingle();
+  // The payment-methods setting and the product row are independent reads.
+  const [methods, { data }] = await Promise.all([
+    paymentMethods(),
+    supabaseAdmin
+      .from("products")
+      .select("name, emoji, price, sale_price, sale_ends_at")
+      .eq("slug", slug)
+      .maybeSingle(),
+  ]);
   const product = data as
     | {
         name: string;

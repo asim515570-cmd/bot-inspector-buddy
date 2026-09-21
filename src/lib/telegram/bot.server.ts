@@ -227,23 +227,34 @@ async function startCheckout(
   }
 
   if (paidFromBalance) {
-    await supabaseAdmin
-      .from("orders")
-      .update({ status: "paid", paid_at: new Date().toISOString(), payment_method: "balance" })
-      .eq("id", orderId as string);
+    // These three don't depend on each other's result — deliver_order looks
+    // up stock by order_id/status (not by the order's status column) and
+    // unconditionally sets the order to 'delivered' itself, so the "paid"
+    // update below only needs to carry payment_method/paid_at (fields
+    // deliver_order doesn't touch) to be safely run alongside it instead of
+    // being sequenced before it.
+    const [, deliverRes, percentRes] = await Promise.all([
+      supabaseAdmin
+        .from("orders")
+        .update({ paid_at: new Date().toISOString(), payment_method: "balance" })
+        .eq("id", orderId as string),
+      supabaseAdmin.rpc("deliver_order", { p_order: orderId as string }),
+      supabaseAdmin.from("shop_settings").select("value").eq("key", "referral_percent").maybeSingle(),
+    ]);
+    const payloads = ((deliverRes.data ?? []) as { payload: string }[]).map((r) => r.payload);
+    const percent = Number(percentRes.data?.value ?? 5);
 
-    const { data: delivered } = await supabaseAdmin.rpc("deliver_order", {
-      p_order: orderId as string,
-    });
-    const payloads = ((delivered ?? []) as { payload: string }[]).map((r) => r.payload);
+    // Confirm the buyer's own order first — that's the message they're
+    // actively waiting on. Paying the referrer (a different chat) is
+    // important but shouldn't delay it.
+    await sendMessage(
+      chatId,
+      payloads.length
+        ? `📦 ${product.name}\n\n${payloads.join("\n")}\n\nPaid from your balance. New balance: ${formatPrice(balanceAfter)}`
+        : "Your order is confirmed, but delivery needs an admin. We'll message you shortly.",
+    );
 
     // Referral commission, paid once per completed order.
-    const { data: percentRow } = await supabaseAdmin
-      .from("shop_settings")
-      .select("value")
-      .eq("key", "referral_percent")
-      .maybeSingle();
-    const percent = Number(percentRow?.value ?? 5);
     if (percent > 0) {
       const { data: commission } = await supabaseAdmin.rpc("pay_referral_commission", {
         p_order: orderId as string,
@@ -269,12 +280,6 @@ async function startCheckout(
         }
       }
     }
-    await sendMessage(
-      chatId,
-      payloads.length
-        ? `📦 ${product.name}\n\n${payloads.join("\n")}\n\nPaid from your balance. New balance: ${formatPrice(balanceAfter)}`
-        : "Your order is confirmed, but delivery needs an admin. We'll message you shortly.",
-    );
     return;
   }
 
@@ -441,10 +446,6 @@ async function handleAdminCommand(
         .order("category")
         .order("sort_order")
         .limit(100);
-      const { data: stock } = await supabaseAdmin
-        .from("stock_items")
-        .select("product_id, status");
-      void stock;
       if (!rows || rows.length === 0) {
         await sendMessage(chatId, "No products yet. Use /addproduct.");
         return;
@@ -765,107 +766,130 @@ async function handleAdminCommand(
 
 // ------------------------------------------------------------------ router
 
+/** Runs the screen dispatch for a callback tap. Split out so it can be
+ * awaited concurrently with acknowledging the tap (see handleUpdate). */
+async function dispatchCallback(view: View, user: BotUser, data: string): Promise<void> {
+  const chatId = view.chatId;
+  if (data === "menu" || data.startsWith("start")) {
+    await mainMenu(view, user);
+  } else if (data === "shop" || data.startsWith("browse")) {
+    const page = data.startsWith("browse:") ? Number(data.split(":")[1]) || 0 : 0;
+    await categoriesScreen(view, Math.max(0, page));
+  } else if (data.startsWith("cat:")) {
+    // Legacy category buttons from older Telegram messages now open the
+    // complete product list instead of restoring the removed category UI.
+    await categoriesScreen(view, 0);
+  } else if (data.startsWith("product:")) {
+    await productScreen(view, data.slice(8));
+  } else if (data.startsWith("buy:")) {
+    await quantityScreen(view, data.slice(4));
+  } else if (data.startsWith("qty:")) {
+    const [, slug, qty] = data.split(":");
+    await summaryScreen(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
+  } else if (data.startsWith("paybal:")) {
+    const [, slug, qty] = data.split(":");
+    await startCheckout(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
+  } else if (data.startsWith("pm:")) {
+    const [, slug, qty] = data.split(":");
+    await methodsScreen(view, slug ?? "", Math.max(1, Number(qty) || 1));
+  } else if (data.startsWith("pmx:")) {
+    const [, slug, qty, idx] = data.split(":");
+    await startCheckout(
+      view,
+      user,
+      slug ?? "",
+      Math.max(1, Number(qty) || 1),
+      Math.max(0, Number(idx) || 0),
+    );
+  } else if (data.startsWith("cx:")) {
+    await cancelOrder(view, user, data.slice(3));
+  } else if (data.startsWith("orders")) {
+    await ordersScreen(view, user);
+  } else if (data.startsWith("balance")) {
+    await balanceScreen(view, user);
+  } else if (data === "profile") {
+    await profileScreen(view, user);
+  } else if (data === "deposit") {
+    await depositScreen(view, user);
+  } else if (data === "api") {
+    await apiScreen(view);
+  } else if (data === "support") {
+    await supportScreen(view);
+  } else if (data === "how") {
+    await howItWorksScreen(view);
+  } else if (data === "refer") {
+    await referralScreen(view, user, process.env["TELEGRAM_BOT_USERNAME"] ?? "");
+  } else if (data === "withdraw") {
+    await withdrawScreen(view, user);
+  } else if (/^(apay|rpay|awd|rwd):/.test(data)) {
+    // Admin actions from the in-Telegram panel: role re-read from the DB.
+    if (!(await isAdminNow(user.telegram_id))) {
+      console.warn(`[telegram] authz denied: telegram_id=${user.telegram_id} action=${data}`);
+      await sendMessage(chatId, "⛔ Not authorized.");
+      return;
+    }
+    const [kind, ref] = data.split(":") as [string, string];
+    if (kind === "apay") await decidePayment(chatId, ref, true);
+    else if (kind === "rpay") await decidePayment(chatId, ref, false);
+    else if (kind === "awd") await decidePayout(chatId, ref, true);
+    else await decidePayout(chatId, ref, false);
+  }
+}
+
 export async function handleUpdate(update: TgUpdate): Promise<void> {
   const callback = update.callback_query;
   if (callback?.from && callback.message?.chat?.id) {
-    if (!(await allowRequest(callback.from.id))) {
+    // Flood check and user lookup touch different tables and don't depend on
+    // each other's result, so they run as one round trip instead of two.
+    const [allowed, user] = await Promise.all([
+      allowRequest(callback.from.id),
+      ensureUser(callback.from),
+    ]);
+    if (!allowed) {
       await answerCallbackQuery(callback.id);
       return;
     }
-    const user = await ensureUser(callback.from);
     if (!user) return;
     const chatId = callback.message.chat.id;
     const data = callback.data ?? "";
-    await answerCallbackQuery(callback.id);
 
     if (user.is_blocked) {
-      await sendMessage(chatId, "⛔ Your access to this shop has been disabled.");
+      // Still awaited together so the ack always reaches Telegram before we return.
+      await Promise.all([
+        answerCallbackQuery(callback.id),
+        sendMessage(chatId, "⛔ Your access to this shop has been disabled."),
+      ]);
       return;
     }
 
     const view: View = { chatId, messageId: callback.message.message_id };
 
-    if (data === "menu" || data.startsWith("start")) {
-      await mainMenu(view, user);
-    } else if (data === "shop" || data.startsWith("browse")) {
-      const page = data.startsWith("browse:") ? Number(data.split(":")[1]) || 0 : 0;
-      await categoriesScreen(view, Math.max(0, page));
-    } else if (data.startsWith("cat:")) {
-      // Legacy category buttons from older Telegram messages now open the
-      // complete product list instead of restoring the removed category UI.
-      await categoriesScreen(view, 0);
-    } else if (data.startsWith("product:")) {
-      await productScreen(view, data.slice(8));
-    } else if (data.startsWith("buy:")) {
-      await quantityScreen(view, data.slice(4));
-    } else if (data.startsWith("qty:")) {
-      const [, slug, qty] = data.split(":");
-      await summaryScreen(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
-    } else if (data.startsWith("paybal:")) {
-      const [, slug, qty] = data.split(":");
-      await startCheckout(view, user, slug ?? "", Math.max(1, Number(qty) || 1));
-    } else if (data.startsWith("pm:")) {
-      const [, slug, qty] = data.split(":");
-      await methodsScreen(view, slug ?? "", Math.max(1, Number(qty) || 1));
-    } else if (data.startsWith("pmx:")) {
-      const [, slug, qty, idx] = data.split(":");
-      await startCheckout(
-        view,
-        user,
-        slug ?? "",
-        Math.max(1, Number(qty) || 1),
-        Math.max(0, Number(idx) || 0),
-      );
-    } else if (data.startsWith("cx:")) {
-      await cancelOrder(view, user, data.slice(3));
-    } else if (data.startsWith("orders")) {
-      await ordersScreen(view, user);
-    } else if (data.startsWith("balance")) {
-      await balanceScreen(view, user);
-    } else if (data === "profile") {
-      await profileScreen(view, user);
-    } else if (data === "deposit") {
-      await depositScreen(view, user);
-    } else if (data === "api") {
-      await apiScreen(view);
-    } else if (data === "support") {
-      await supportScreen(view);
-    } else if (data === "how") {
-      await howItWorksScreen(view);
-    } else if (data === "refer") {
-      await referralScreen(view, user, process.env["TELEGRAM_BOT_USERNAME"] ?? "");
-    } else if (data === "withdraw") {
-      await withdrawScreen(view, user);
-    } else if (/^(apay|rpay|awd|rwd):/.test(data)) {
-      // Admin actions from the in-Telegram panel: role re-read from the DB.
-      if (!(await isAdminNow(user.telegram_id))) {
-        console.warn(`[telegram] authz denied: telegram_id=${user.telegram_id} action=${data}`);
-        await sendMessage(chatId, "⛔ Not authorized.");
-        return;
-      }
-      const [kind, ref] = data.split(":") as [string, string];
-      if (kind === "apay") await decidePayment(chatId, ref, true);
-      else if (kind === "rpay") await decidePayment(chatId, ref, false);
-      else if (kind === "awd") await decidePayout(chatId, ref, true);
-      else await decidePayout(chatId, ref, false);
-    }
+    // Acknowledging the tap (clears Telegram's loading spinner) never depends
+    // on what the screen below renders, so the two run concurrently instead
+    // of the ack blocking the DB/render work that follows it.
+    await Promise.all([answerCallbackQuery(callback.id), dispatchCallback(view, user, data)]);
     return;
   }
 
   const message = update.message ?? update.edited_message;
   if (!message?.from || !message.chat?.id) return;
-  if (!(await allowRequest(message.from.id))) {
+
+  const startPayload = (message.text ?? "").trim().startsWith("/start")
+    ? (message.text ?? "").trim().split(/\s+/)[1]
+    : undefined;
+  // Same as the callback path: flood check and user lookup are independent,
+  // so they run as one round trip instead of two.
+  const [allowed, user] = await Promise.all([
+    allowRequest(message.from.id),
+    ensureUser(message.from, startPayload),
+  ]);
+  if (!allowed) {
     await sendMessage(
       message.chat.id,
       "⏳ Too many requests. Please wait about half a minute and try again.",
     );
     return;
   }
-
-  const startPayload = (message.text ?? "").trim().startsWith("/start")
-    ? (message.text ?? "").trim().split(/\s+/)[1]
-    : undefined;
-  const user = await ensureUser(message.from, startPayload);
   if (!user) return;
 
   const chatId = message.chat.id;
