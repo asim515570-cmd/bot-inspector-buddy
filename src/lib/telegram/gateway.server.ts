@@ -14,6 +14,7 @@ async function callTelegram(
   const lovableApiKey = process.env["LOVABLE_API_KEY"];
   const telegramApiKey = process.env["TELEGRAM_API_KEY"];
 
+  // Both managed credentials are injected together when the connector is linked.
   if (!lovableApiKey || !telegramApiKey) {
     console.error(`[telegram] ${method} skipped: gateway not configured`);
     return null;
