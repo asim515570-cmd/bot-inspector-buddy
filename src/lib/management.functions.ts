@@ -180,12 +180,18 @@ export const updateOrder = createServerFn({ method: "POST" })
     const note = data.note ? { admin_note: data.note } : {};
 
     if (data.action === "mark_paid") {
-      if (order.status !== "pending") throw new Error("Only pending orders can be marked as paid.");
-      const { error } = await db
+      // Guarded at the DB level (not just the earlier read) so two admins
+      // marking the same order paid at once can't both succeed.
+      const { data: claimed, error } = await db
         .from("orders")
         .update({ status: "paid", paid_at: new Date().toISOString(), ...note })
-        .eq("id", data.id);
+        .eq("id", data.id)
+        .eq("status", "pending")
+        .select("id");
       if (error) throw dbFail(error);
+      if (!claimed || claimed.length === 0) {
+        throw new Error("Only pending orders can be marked as paid.");
+      }
       if (chatId) {
         const { sendMessage } = await import("@/lib/telegram/gateway.server");
         await sendMessage(chatId, `✅ Payment confirmed for ${productName}. Delivery is on its way.`);
@@ -253,26 +259,22 @@ export const updateOrder = createServerFn({ method: "POST" })
     if (data.note) await db.from("orders").update(note).eq("id", data.id);
 
     if (data.action === "refund") {
-      const { data: user } = await db
+      const { data: refundOrder } = await db
         .from("orders")
         .select("bot_user_id, total_price")
         .eq("id", data.id)
         .maybeSingle();
-      if (user) {
-        const { data: current } = await db
-          .from("bot_users")
-          .select("balance")
-          .eq("id", user.bot_user_id)
-          .maybeSingle();
-        const next = Number(current?.balance ?? 0) + Number(user.total_price ?? 0);
-        await db.from("bot_users").update({ balance: next }).eq("id", user.bot_user_id);
-        await db.from("wallet_transactions").insert({
-          bot_user_id: user.bot_user_id,
-          amount: Number(user.total_price ?? 0),
-          balance_after: next,
-          reason: "Order refunded",
-          order_id: data.id,
+      if (refundOrder) {
+        // Atomic: avoids a racy read-then-write against the customer's balance.
+        const { error: refundError } = await db.rpc("adjust_bot_user_balance", {
+          p_bot_user: refundOrder.bot_user_id,
+          p_delta: Number(refundOrder.total_price ?? 0),
+          p_reason: "Order refunded",
+          p_order_id: data.id,
         });
+        if (refundError) {
+          throw dbFail(refundError, "Order was cancelled, but the refund could not be applied. Please retry.");
+        }
       }
     }
     if (chatId) {
@@ -340,20 +342,34 @@ export const updateCustomer = createServerFn({ method: "POST" })
     const patch: {
       role?: "admin" | "customer";
       is_blocked?: boolean;
-      balance?: number;
     } = {};
     if (data.role) patch.role = data.role;
     if (typeof data.isBlocked === "boolean") patch.is_blocked = data.isBlocked;
 
-    if (data.balanceDelta) {
-      const next = Number(user.balance) + data.balanceDelta;
-      if (next < 0) throw new Error("That would take the balance below zero.");
-      patch.balance = next;
+    if (Object.keys(patch).length === 0 && !data.balanceDelta) {
+      return { message: "Nothing to change." };
     }
 
-    if (Object.keys(patch).length === 0) return { message: "Nothing to change." };
-    const { error } = await db.from("bot_users").update(patch).eq("id", data.id);
-    if (error) throw dbFail(error);
+    // Atomic: adjust_bot_user_balance locks the row and rejects the change if
+    // it would go negative, instead of a racy read-then-write.
+    if (data.balanceDelta) {
+      const { error: balanceError } = await db.rpc("adjust_bot_user_balance", {
+        p_bot_user: data.id,
+        p_delta: data.balanceDelta,
+        p_reason: data.reason || "Manual adjustment by admin",
+      });
+      if (balanceError) {
+        if (balanceError.message.includes("insufficient_balance")) {
+          throw new Error("That would take the balance below zero.");
+        }
+        throw dbFail(balanceError);
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      const { error } = await db.from("bot_users").update(patch).eq("id", data.id);
+      if (error) throw dbFail(error);
+    }
 
     if (data.role) {
       const { data: changedUser } = await db
@@ -371,14 +387,6 @@ export const updateCustomer = createServerFn({ method: "POST" })
       }
     }
 
-    if (data.balanceDelta) {
-      await db.from("wallet_transactions").insert({
-        bot_user_id: data.id,
-        amount: data.balanceDelta,
-        balance_after: Number(patch.balance),
-        reason: data.reason || "Manual adjustment by admin",
-      });
-    }
     await logActivity(
       actorOf(context),
       data.role ? "customer:role" : typeof data.isBlocked === "boolean" ? "customer:block" : "customer:balance",
@@ -471,17 +479,8 @@ export const broadcast = createServerFn({ method: "POST" })
       .select("telegram_id")
       .eq("is_blocked", false)
       .limit(2000);
-    const { sendMessage } = await import("@/lib/telegram/gateway.server");
-    let sent = 0;
-    for (const u of users ?? []) {
-      try {
-        await sendMessage(u.telegram_id, data.text);
-        sent += 1;
-      } catch {
-        // A single unreachable chat must not stop the broadcast.
-      }
-      await new Promise((r) => setTimeout(r, 40));
-    }
+    const { broadcastMessage } = await import("@/lib/telegram/gateway.server");
+    const sent = await broadcastMessage((users ?? []).map((u) => u.telegram_id), data.text);
     await logActivity(actorOf(context), "broadcast", `${sent} recipient(s)`);
     return { sent, total: (users ?? []).length };
   });

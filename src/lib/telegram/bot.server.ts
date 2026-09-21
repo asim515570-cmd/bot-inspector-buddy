@@ -24,6 +24,7 @@ import {
   balanceScreen,
   categoriesScreen,
   effectivePrice,
+  esc,
   howItWorksScreen,
   mainMenu,
   methodsScreen,
@@ -199,23 +200,33 @@ async function startCheckout(
   }
 
   const price = effectivePrice(product) * qty;
-  const { data: me } = await supabaseAdmin
-    .from("bot_users")
-    .select("balance")
-    .eq("id", user.id)
-    .maybeSingle();
-  const balance = Number(me?.balance ?? 0);
 
-  if (methodIndex === undefined && balance >= price) {
-    const next = balance - price;
-    await supabaseAdmin.from("bot_users").update({ balance: next }).eq("id", user.id);
-    await supabaseAdmin.from("wallet_transactions").insert({
-      bot_user_id: user.id,
-      amount: -price,
-      balance_after: next,
-      reason: `Purchase: ${product.name}`,
-      order_id: orderId as string,
-    });
+  // Atomic balance debit: a plain read-balance-then-write-balance would race
+  // under concurrent checkouts (two taps could both read the same starting
+  // balance and both "succeed"). adjust_bot_user_balance locks the row and
+  // rejects the debit if it would go negative, so at most one concurrent
+  // checkout can pay from balance for a given amount.
+  let paidFromBalance = false;
+  let balanceAfter = 0;
+  if (methodIndex === undefined) {
+    const { data: newBalance, error: balanceError } = await supabaseAdmin.rpc(
+      "adjust_bot_user_balance",
+      {
+        p_bot_user: user.id,
+        p_delta: -price,
+        p_reason: `Purchase: ${product.name}`,
+        p_order_id: orderId as string,
+      },
+    );
+    if (!balanceError) {
+      paidFromBalance = true;
+      balanceAfter = Number(newBalance ?? 0);
+    } else if (!balanceError.message.includes("insufficient_balance")) {
+      console.error(`[telegram] balance payment failed for order ${orderId as string}: ${balanceError.message}`);
+    }
+  }
+
+  if (paidFromBalance) {
     await supabaseAdmin
       .from("orders")
       .update({ status: "paid", paid_at: new Date().toISOString(), payment_method: "balance" })
@@ -261,7 +272,7 @@ async function startCheckout(
     await sendMessage(
       chatId,
       payloads.length
-        ? `📦 ${product.name}\n\n${payloads.join("\n")}\n\nPaid from your balance. New balance: ${formatPrice(next)}`
+        ? `📦 ${product.name}\n\n${payloads.join("\n")}\n\nPaid from your balance. New balance: ${formatPrice(balanceAfter)}`
         : "Your order is confirmed, but delivery needs an admin. We'll message you shortly.",
     );
     return;
@@ -286,14 +297,14 @@ async function startCheckout(
   await render(
     { chatId, messageId: view.messageId },
     [
-      `${chosen ? `💠 <b>${chosen.label}</b>` : "🧾 <b>Payment</b>"}`,
+      `${chosen ? `💠 <b>${esc(chosen.label)}</b>` : "🧾 <b>Payment</b>"}`,
       "",
-      `📦 Product: <b>${product.name}</b>`,
+      `📦 Product: <b>${esc(product.name)}</b>`,
       `🔢 Quantity: <b>${qty}</b>`,
       `💰 Total: <b>${formatPrice(price)}</b>`,
       `🧾 Order id: <code>${shortId}</code>`,
       "",
-      instructions,
+      esc(instructions),
       "",
       `✅ After paying, send <code>/pay ${shortId} &lt;transaction ref&gt;</code> here.`,
       "🚀 Once verified, your items are delivered automatically.",
@@ -442,7 +453,7 @@ async function handleAdminCommand(
         const live =
           p.sale_price && (!p.sale_ends_at || new Date(p.sale_ends_at).getTime() > Date.now());
         const price = live ? `${formatPrice(Number(p.sale_price))} 🔥` : formatPrice(Number(p.price));
-        return `${p.active ? "🟢" : "⚪️"} <code>${p.slug}</code> — ${p.emoji ?? ""} ${p.name} · ${price} · ${p.category}`;
+        return `${p.active ? "🟢" : "⚪️"} <code>${p.slug}</code> — ${esc(p.emoji ?? "")} ${esc(p.name)} · ${price} · ${esc(p.category)}`;
       });
       await sendMessage(chatId, ["📦 <b>Products</b>", "", ...lines].join("\n"), undefined, true);
       return;
@@ -501,7 +512,7 @@ async function handleAdminCommand(
           "",
           ...live.map(
             (p) =>
-              `<code>${p.slug}</code> — ${p.name}: ${formatPrice(Number(p.sale_price))} (was ${formatPrice(Number(p.price))})${p.sale_ends_at ? ` · ends ${String(p.sale_ends_at).slice(0, 16).replace("T", " ")} UTC` : " · no end time"}`,
+              `<code>${p.slug}</code> — ${esc(p.name)}: ${formatPrice(Number(p.sale_price))} (was ${formatPrice(Number(p.price))})${p.sale_ends_at ? ` · ends ${String(p.sale_ends_at).slice(0, 16).replace("T", " ")} UTC` : " · no end time"}`,
           ),
         ].join("\n"),
         undefined,

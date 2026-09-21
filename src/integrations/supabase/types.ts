@@ -522,6 +522,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      adjust_bot_user_balance: {
+        Args: {
+          p_bot_user: string
+          p_delta: number
+          p_order_id?: string
+          p_reason: string
+        }
+        Returns: number
+      }
       bot_rate_check: {
         Args: {
           p_cooldown_seconds?: number
@@ -530,6 +539,12 @@ export type Database = {
           p_window_seconds?: number
         }
         Returns: boolean
+      }
+      decide_payment: {
+        Args: { p_approve: boolean; p_order: string }
+        Returns: {
+          payload: string
+        }[]
       }
       decide_withdrawal: {
         Args: { p_approve: boolean; p_note: string; p_withdrawal: string }

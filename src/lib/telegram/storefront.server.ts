@@ -32,10 +32,16 @@ type ProductRow = {
 };
 
 export function esc(value: string): string {
+  // Quotes are escaped too (as numeric entities, which Telegram's HTML parser
+  // documents as supported) since this is also used inside href="..."
+  // attributes (channel/group/terms links) — an unescaped `"` there could
+  // break out of the attribute.
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&#34;")
+    .replace(/'/g, "&#39;");
 }
 
 /** Sends the screen, editing the current message when there is one. */
@@ -411,7 +417,7 @@ export async function productScreen(view: View, slug: string): Promise<void> {
   const categoryIndex = categories.indexOf(product.category);
 
   const lines = [
-    `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+    `${esc(product.emoji ?? "📦")} <b>${esc(product.name)}</b>`,
     now < base
       ? `💰 Price: <b>${formatPrice(now)}</b> / code  <s>${formatPrice(base)}</s>  🔥 ${Math.round(((base - now) / base) * 100)}% off`
       : `💰 Price: <b>${formatPrice(now)}</b> / code`,
@@ -510,7 +516,7 @@ export async function quantityScreen(view: View, slug: string): Promise<void> {
     [
       "🧮 <b>Select Quantity</b>",
       "",
-      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+      `${esc(product.emoji ?? "📦")} <b>${esc(product.name)}</b>`,
       `${formatPrice(price)} / code · ${stock} in stock`,
       "",
       "How many codes do you want?",
@@ -569,7 +575,7 @@ export async function summaryScreen(
     [
       "🧾 <b>Order Summary</b>",
       "",
-      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b>`,
+      `${esc(product.emoji ?? "📦")} <b>${esc(product.name)}</b>`,
       `🔢 Qty: <b>${qty}</b>`,
       `💰 Price: <b>${formatPrice(price)}</b> each`,
       `🧮 Total: <b>${formatPrice(total)}</b>`,
@@ -628,7 +634,7 @@ export async function methodsScreen(view: View, slug: string, qty: number): Prom
     [
       "💳 <b>Select Payment Method</b>",
       "",
-      `${product.emoji ?? "📦"} <b>${esc(product.name)}</b> × ${qty}`,
+      `${esc(product.emoji ?? "📦")} <b>${esc(product.name)}</b> × ${qty}`,
       `Total: <b>${formatPrice(total)}</b>`,
     ].join("\n"),
     rows,

@@ -16,11 +16,22 @@ export function parsePrice(value: string): number | null {
 
 /**
  * Accepts either a Telegram custom emoji id (5-25 digits) or a short literal
- * emoji/symbol token (no whitespace, max 8 chars).
+ * emoji/symbol token (no whitespace, no HTML metacharacters, max 8 chars).
+ * HTML metacharacters are rejected even though messages are HTML-escaped
+ * before rendering, as defense in depth for a field that should only ever
+ * hold an emoji or symbol.
  */
 export function isValidEmoji(value: string): boolean {
   if (/^\d{5,25}$/.test(value)) return true;
-  return value.length > 0 && value.length <= 8 && !/\s/.test(value);
+  return value.length > 0 && value.length <= 8 && !/[\s<>&"']/.test(value);
+}
+
+/** Constant-time string comparison to avoid leaking secret length/content via timing. */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 export function formatPrice(price: number | string): string {
