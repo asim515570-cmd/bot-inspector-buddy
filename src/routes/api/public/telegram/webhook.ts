@@ -23,6 +23,17 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           return new Response("Unauthorized", { status: 401 });
         }
 
+        // Real Telegram updates are at most a few KB (message text alone is
+        // capped at 4096 chars). This is a cheap header check that rejects
+        // an oversized body before it's ever parsed, in case the secret
+        // itself is ever compromised.
+        const MAX_BODY_BYTES = 1_000_000;
+        const contentLength = Number(request.headers.get("content-length") ?? "0");
+        if (contentLength > MAX_BODY_BYTES) {
+          console.warn(`[telegram] rejected update: body too large (${contentLength} bytes)`);
+          return new Response("Payload Too Large", { status: 413 });
+        }
+
         let update: Record<string, unknown>;
         try {
           update = await request.json();

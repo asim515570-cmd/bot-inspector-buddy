@@ -7,6 +7,7 @@
  * caller in bot.server.ts; nothing here trusts client-supplied roles.
  */
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { logActivity } from "@/lib/security.server";
 import { broadcastMessage, sendMessage, type InlineButton } from "./gateway.server";
 import { formatPrice, parsePrice } from "./validation";
 import { esc, render, setting, type View } from "./storefront.server";
@@ -14,6 +15,16 @@ import { esc, render, setting, type View } from "./storefront.server";
 export type OpsUser = { id: string; telegram_id: number };
 
 const short = (id: string) => id.slice(0, 8);
+
+/**
+ * Audit trail for admin actions taken *through the bot* (vs. the dashboard,
+ * which already logs via security.server's logActivity). Same table, same
+ * viewer in the dashboard's Overview panel — so an admin acting from
+ * Telegram leaves the same kind of record as one acting from the browser.
+ */
+function logBotAdmin(telegramId: number, action: string, detail?: string): Promise<void> {
+  return logActivity(`telegram:${telegramId}`, action, detail);
+}
 
 async function numSetting(key: string, fallback: number): Promise<number> {
   const raw = await setting(key, String(fallback));
@@ -282,6 +293,11 @@ async function adjustBalance(
     );
     return;
   }
+  await logBotAdmin(
+    chatId,
+    sign > 0 ? "customer:credit" : "customer:debit",
+    `user ${tid} ${sign > 0 ? "+" : "-"}${formatPrice(amount)} (${reason})`,
+  );
 
   await sendMessage(
     chatId,
@@ -420,6 +436,7 @@ export async function handleOpsCommand(
       const tid = (order as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
       const name = (order as { products: { name: string } | null }).products?.name ?? "your order";
       if (tid) await sendMessage(tid, `📦 ${name} (re-sent)\n\n${payloads.join("\n")}`);
+      await logBotAdmin(chatId, "order:redeliver", short(String(order.id)));
       await sendMessage(chatId, `✅ Re-sent ${payloads.length} item(s) to ${tid ?? "unknown"}.`);
       return;
     }
@@ -513,6 +530,7 @@ export async function handleOpsCommand(
         .eq("telegram_id", tid)
         .select("id")
         .maybeSingle();
+      if (data) await logBotAdmin(chatId, blocked ? "customer:ban" : "customer:unban", `user ${tid}`);
       await sendMessage(
         chatId,
         data
@@ -532,6 +550,7 @@ export async function handleOpsCommand(
         .eq("is_blocked", false)
         .limit(2000);
       const sent = await broadcastMessage((data ?? []).map((u) => u.telegram_id), `📣 ${text}`);
+      await logBotAdmin(chatId, "broadcast", `${sent} recipient(s)`);
       await sendMessage(chatId, `📣 Broadcast sent to ${sent} user(s).`);
       return;
     }
@@ -560,14 +579,18 @@ export async function decidePayment(chatId: number, ref: string, approve: boolea
     p_approve: approve,
   });
   if (error) {
+    // Raw RPC/DB errors stay server-side; the admin only ever sees a safe,
+    // generic message (same discipline as the dashboard's dbFail helper).
+    console.error(`[telegram] decide_payment failed for order ${order.id}: ${error.message}`);
     await sendMessage(
       chatId,
       error.message.includes("already_decided")
         ? "⚠️ This order was already decided."
-        : `❌ ${error.message}`,
+        : "❌ Could not process that decision. Please try again.",
     );
     return;
   }
+  await logBotAdmin(chatId, approve ? "payment:approve" : "payment:reject", short(String(order.id)));
 
   if (!approve) {
     await sendMessage(chatId, `❌ Order ${short(String(order.id))} rejected and stock released.`);
@@ -617,7 +640,17 @@ export async function decidePayout(chatId: number, ref: string, approve: boolean
     p_approve: approve,
     p_note: "",
   });
-  if (error) return void (await sendMessage(chatId, `❌ ${error.message}`));
+  if (error) {
+    console.error(`[telegram] decide_withdrawal failed for payout ${w.id}: ${error.message}`);
+    await sendMessage(
+      chatId,
+      error.message.includes("already_decided")
+        ? "⚠️ This payout was already decided."
+        : "❌ Could not process that decision. Please try again.",
+    );
+    return;
+  }
+  await logBotAdmin(chatId, approve ? "payout:approve" : "payout:reject", short(String(w.id)));
 
   const tid = (w as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
   await sendMessage(

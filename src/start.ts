@@ -40,7 +40,27 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.lovable.dev https://*.lovable.app",
   "connect-src 'self' https: wss:",
+  // No functional effect over HTTPS deployments; only matters if a stray
+  // http:// subresource URL ever sneaks in, in which case it's upgraded
+  // instead of silently blocked or (worse) loaded insecurely.
+  "upgrade-insecure-requests",
 ].join("; ");
+
+// Every one of these device/sensor APIs is unused by this app (storefront
+// admin dashboard + Telegram webhook) — locking them out removes an attack
+// surface for any future XSS or a compromised third-party script to abuse,
+// without touching any capability the app actually relies on.
+const PERMISSIONS_POLICY = [
+  "camera=()",
+  "microphone=()",
+  "geolocation=()",
+  "payment=()",
+  "usb=()",
+  "magnetometer=()",
+  "gyroscope=()",
+  "accelerometer=()",
+  "midi=()",
+].join(", ");
 
 const securityHeadersMiddleware = createMiddleware().server(async ({ next }) => {
   const result = await next();
@@ -49,8 +69,12 @@ const securityHeadersMiddleware = createMiddleware().server(async ({ next }) => 
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     response.headers.set("X-Frame-Options", "SAMEORIGIN");
-    response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    response.headers.set("Permissions-Policy", PERMISSIONS_POLICY);
     response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    // Turns off the browser's speculative DNS lookups for links on the page —
+    // a minor privacy hardening (stops leaking "the visitor hovered/saw a
+    // link to X" to X's DNS resolver) with no effect on navigation working.
+    response.headers.set("X-DNS-Prefetch-Control", "off");
     if (!response.headers.has("Content-Security-Policy")) {
       response.headers.set("Content-Security-Policy", CSP);
     }

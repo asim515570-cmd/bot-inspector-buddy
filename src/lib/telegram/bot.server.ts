@@ -14,6 +14,7 @@
  *   (a future step), by updating `bot_users.role`.
  */
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { logActivity } from "@/lib/security.server";
 import {
   answerCallbackQuery,
   sendMessage,
@@ -166,6 +167,15 @@ async function getProduct(slug: string) {
     .eq("slug", slug)
     .maybeSingle();
   return data;
+}
+
+/**
+ * Audit trail for admin actions taken through the bot (vs. the dashboard,
+ * which already logs via security.server's logActivity) — same table, same
+ * viewer in the dashboard's Overview panel.
+ */
+function logBotAdmin(telegramId: number, action: string, detail?: string): Promise<void> {
+  return logActivity(`telegram:${telegramId}`, action, detail);
 }
 
 // ---------------------------------------------------------------- customer
@@ -484,6 +494,7 @@ async function handleAdminCommand(
         .from("products")
         .update({ sale_price: salePrice, sale_ends_at: endsAt })
         .eq("id", product.id);
+      await logBotAdmin(chatId, "product:flashsale", `${slug} -> ${formatPrice(salePrice)} for ${hours}h`);
       await sendMessage(
         chatId,
         `🔥 Flash sale on ${product.name}: ${formatPrice(salePrice)} for ${hours}h (ends ${endsAt.slice(0, 16).replace("T", " ")} UTC).`,
@@ -526,7 +537,13 @@ async function handleAdminCommand(
         .from("products")
         .update({ sale_price: null, sale_ends_at: null })
         .eq("slug", slug);
-      await sendMessage(chatId, error ? `❌ ${error.message}` : `✅ Flash sale stopped for ${slug}.`);
+      if (error) {
+        console.error(`[telegram] /stopflashsale failed for ${slug}: ${error.message}`);
+        await sendMessage(chatId, "❌ Could not stop the flash sale. Please try again.");
+        return;
+      }
+      await logBotAdmin(chatId, "product:stopflashsale", slug);
+      await sendMessage(chatId, `✅ Flash sale stopped for ${slug}.`);
       return;
     }
     case "/addproduct": {
@@ -578,6 +595,7 @@ async function handleAdminCommand(
         );
         return;
       }
+      await logBotAdmin(chatId, "product:create", `${newSlug} at ${formatPrice(price)}`);
       await sendMessage(
         chatId,
         `✅ Created "${name}" (${newSlug}) at ${formatPrice(price)}. It is inactive until you add stock and run /setactive ${newSlug} on.`,
@@ -594,6 +612,7 @@ async function handleAdminCommand(
       const product = await getProduct(slug);
       if (!product) return void (await sendMessage(chatId, "❌ Product not found."));
       await supabaseAdmin.from("products").update({ price }).eq("id", product.id);
+      await logBotAdmin(chatId, "product:setprice", `${slug} -> ${formatPrice(price)}`);
       await sendMessage(chatId, `✅ ${slug} price set to ${formatPrice(price)}.`);
       return;
     }
@@ -617,6 +636,7 @@ async function handleAdminCommand(
         .from("products")
         .update({ active: flag === "on" })
         .eq("id", product.id);
+      await logBotAdmin(chatId, "product:setactive", `${slug} -> ${flag}`);
       await sendMessage(chatId, `✅ ${slug} is now ${flag === "on" ? "active" : "inactive"}.`);
       return;
     }
@@ -633,6 +653,7 @@ async function handleAdminCommand(
         .from("products")
         .update({ description: desc })
         .eq("id", product.id);
+      await logBotAdmin(chatId, "product:setdesc", slug);
       await sendMessage(chatId, `✅ Description updated for ${slug}.`);
       return;
     }
@@ -649,6 +670,7 @@ async function handleAdminCommand(
         .from("products")
         .update({ emoji: value === "clear" ? null : value })
         .eq("id", product.id);
+      await logBotAdmin(chatId, "product:setemoji", slug);
       await sendMessage(
         chatId,
         value === "clear" ? `✅ Emoji cleared for ${slug}.` : `✅ Emoji set for ${slug}.`,
@@ -678,6 +700,7 @@ async function handleAdminCommand(
           .from("products")
           .update({ active: false })
           .eq("id", product.id);
+        await logBotAdmin(chatId, "product:hide", slug);
         await sendMessage(
           chatId,
           `⚠️ ${slug} has ${deliveredOrReserved} delivered/reserved stock items, so it cannot be deleted. It has been disabled instead (active = off).`,
@@ -687,6 +710,7 @@ async function handleAdminCommand(
 
       await supabaseAdmin.from("stock_items").delete().eq("product_id", product.id);
       await supabaseAdmin.from("products").delete().eq("id", product.id);
+      await logBotAdmin(chatId, "product:delete", slug);
       await sendMessage(chatId, `🗑 Deleted ${slug} and its unsold stock.`);
       return;
     }
@@ -713,6 +737,8 @@ async function handleAdminCommand(
         await sendMessage(chatId, "❌ Could not add stock.");
         return;
       }
+      // Codes themselves are never written to the audit trail, same as the dashboard.
+      await logBotAdmin(chatId, "stock:add", `${lines.length} item(s) -> ${slug}`);
       await sendMessage(
         chatId,
         `✅ Added ${lines.length} stock item(s) to ${slug}. Available now: ${await availableCount(product.id)}.`,
@@ -755,6 +781,7 @@ async function handleAdminCommand(
         .eq("product_id", product.id)
         .eq("status", "available")
         .select("id");
+      await logBotAdmin(chatId, "stock:clear", `${removed?.length ?? 0} removed from ${slug}`);
       await sendMessage(
         chatId,
         `🧹 Removed ${removed?.length ?? 0} available stock item(s) from ${slug}. Reserved and delivered items were untouched.`,

@@ -203,7 +203,10 @@ function AdminPage() {
   async function signOut() {
     await qc.cancelQueries();
     qc.clear();
-    await supabase.auth.signOut();
+    // Explicit global scope: revokes the refresh token server-side (not just
+    // clearing the local copy), so a token captured before sign-out can't
+    // keep minting new access tokens afterward.
+    await supabase.auth.signOut({ scope: "global" });
     navigate({ to: "/auth", replace: true });
   }
 
