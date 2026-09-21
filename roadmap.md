@@ -40,6 +40,7 @@ Do not copy the original project's source or exact wording.
 - [x] New admin commands: /admin help, /products, /flashsale (timed sale price), /flashsales, /stopflashsale, /redeliver_pay, /backup
 
 ## Sep 18 (live)
+- [x] Restore live Telegram replies and verify /start plus menu buttons end-to-end
 - [ ] Publish app and register Telegram webhook so real orders/payments/referrals reach the dashboard
 - [ ] New welcome screen layout (Shop / My Profile / Deposit / Developer API / Support / Refer & Earn) per screenshot
 - [ ] Replace demo catalogue with real products + real stock (admin supplies payloads)
