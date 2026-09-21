@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { timingSafeEqual } from "@/lib/telegram/validation";
 
 /**
  * One-shot webhook registration helper.
@@ -9,7 +10,8 @@ import { createFileRoute } from "@tanstack/react-router";
  *
  * Authorization: callers must send `x-admin-token` matching the project's
  * `LOVABLE_CRON_SECRET`, so a stranger who discovers the public URL cannot
- * repoint the bot's webhook.
+ * repoint the bot's webhook. Compared in constant time so the secret's
+ * length/content can't leak through response-timing differences.
  */
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/telegram";
 
@@ -24,7 +26,7 @@ export const Route = createFileRoute("/api/public/telegram/register")({
 
         const provided = request.headers.get("x-admin-token");
 
-        if (!adminSecret || !provided || provided !== adminSecret) {
+        if (!adminSecret || !provided || !timingSafeEqual(provided, adminSecret)) {
           return new Response("Unauthorized", { status: 401 });
         }
 

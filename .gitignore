@@ -16,6 +16,17 @@ dist-ssr
 .nitro
 *.local
 
+# Env files. .env only ever held the public/anon Supabase URL + publishable
+# key (already shipped to the browser via VITE_*), never a secret, but it was
+# tracked in git — untracked now (see git history if you need the old
+# contents) so a future edit that adds a real secret (service role key,
+# Lovable/Telegram API keys, webhook secret, cron secret) can't be committed
+# by accident. Hosting platforms inject real env vars directly; they don't
+# need this file to be tracked.
+.env
+.env.local
+.env.*.local
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

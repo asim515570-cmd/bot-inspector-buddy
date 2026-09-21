@@ -7,9 +7,9 @@
  * caller in bot.server.ts; nothing here trusts client-supplied roles.
  */
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { sendMessage, type InlineButton } from "./gateway.server";
+import { broadcastMessage, sendMessage, type InlineButton } from "./gateway.server";
 import { formatPrice, parsePrice } from "./validation";
-import { render, setting, type View } from "./storefront.server";
+import { esc, render, setting, type View } from "./storefront.server";
 
 export type OpsUser = { id: string; telegram_id: number };
 
@@ -47,8 +47,8 @@ export async function referralScreen(view: View, user: OpsUser, botUsernameHint 
       "",
       `You earn <b>${percent}%</b> of every purchase made by the people you invite.`,
       "",
-      `🔗 Your link: <code>${link}</code>`,
-      `🏷 Your code: <code>${code}</code>`,
+      `🔗 Your link: <code>${esc(link)}</code>`,
+      `🏷 Your code: <code>${esc(code)}</code>`,
       "",
       `👥 Invited: <b>${invited ?? 0}</b>`,
       `💵 Earned so far: <b>${formatPrice(Number(me?.referral_earned ?? 0))}</b>`,
@@ -80,7 +80,7 @@ export async function withdrawScreen(view: View, user: OpsUser) {
     "",
     `Available: <b>${formatPrice(Number(me?.balance ?? 0))}</b>`,
     `Minimum payout: <b>${formatPrice(min)}</b>`,
-    `Methods: ${methods}`,
+    `Methods: ${esc(methods)}`,
     "",
     "To request a payout send:",
     "<code>/withdraw 25 USDT TRC20 TXyzAddress...</code>",
@@ -90,7 +90,7 @@ export async function withdrawScreen(view: View, user: OpsUser) {
     lines.push("", "<b>Your requests</b>");
     for (const w of rows ?? []) {
       const icon = w.status === "approved" ? "✅" : w.status === "rejected" ? "❌" : "⏳";
-      lines.push(`${icon} ${formatPrice(w.amount as number)} · ${w.method} · ${w.status}`);
+      lines.push(`${icon} ${formatPrice(w.amount as number)} · ${esc(String(w.method))} · ${w.status}`);
     }
   }
   await render(view, lines.join("\n"), [
@@ -264,24 +264,32 @@ async function adjustBalance(
   if (!target) return void (await sendMessage(chatId, "❌ No customer with that Telegram id."));
 
   const delta = sign * amount;
-  const next = Number(target.balance) + delta;
-  if (next < 0) return void (await sendMessage(chatId, "❌ That would make the balance negative."));
-
   const reason = parts.slice(2).join(" ") || (sign > 0 ? "Admin top-up" : "Admin adjustment");
-  await supabaseAdmin.from("bot_users").update({ balance: next }).eq("id", target.id);
-  await supabaseAdmin.from("wallet_transactions").insert({
-    bot_user_id: target.id,
-    amount: delta,
-    balance_after: next,
-    reason,
+
+  // Atomic: adjust_bot_user_balance locks the row and rejects the change if
+  // it would go negative, instead of a racy read-then-write.
+  const { data: next, error } = await supabaseAdmin.rpc("adjust_bot_user_balance", {
+    p_bot_user: target.id,
+    p_delta: delta,
+    p_reason: reason,
   });
+  if (error) {
+    await sendMessage(
+      chatId,
+      error.message.includes("insufficient_balance")
+        ? "❌ That would make the balance negative."
+        : "❌ Could not update the balance.",
+    );
+    return;
+  }
+
   await sendMessage(
     chatId,
-    `✅ ${sign > 0 ? "Credited" : "Debited"} ${formatPrice(amount)}. New balance for ${tid}: ${formatPrice(next)}`,
+    `✅ ${sign > 0 ? "Credited" : "Debited"} ${formatPrice(amount)}. New balance for ${tid}: ${formatPrice(Number(next))}`,
   );
   await sendMessage(
     tid,
-    `${sign > 0 ? "➕" : "➖"} ${formatPrice(amount)} ${sign > 0 ? "added to" : "removed from"} your balance (${reason}).\nNew balance: ${formatPrice(next)}`,
+    `${sign > 0 ? "➕" : "➖"} ${formatPrice(amount)} ${sign > 0 ? "added to" : "removed from"} your balance (${reason}).\nNew balance: ${formatPrice(Number(next))}`,
   );
 }
 
@@ -521,12 +529,9 @@ export async function handleOpsCommand(
       const { data } = await supabaseAdmin
         .from("bot_users")
         .select("telegram_id")
-        .eq("is_blocked", false);
-      let sent = 0;
-      for (const u of data ?? []) {
-        await sendMessage(u.telegram_id, `📣 ${text}`);
-        sent += 1;
-      }
+        .eq("is_blocked", false)
+        .limit(2000);
+      const sent = await broadcastMessage((data ?? []).map((u) => u.telegram_id), `📣 ${text}`);
       await sendMessage(chatId, `📣 Broadcast sent to ${sent} user(s).`);
       return;
     }
@@ -547,12 +552,24 @@ export async function decidePayment(chatId: number, ref: string, approve: boolea
   const tid = (order as { bot_users: { telegram_id: number } | null }).bot_users?.telegram_id;
   const name = (order as { products: { name: string } | null }).products?.name ?? "your order";
 
+  // Atomic + guarded at the DB level (locks the order row and checks it's
+  // still 'pending'), so two admins tapping Approve/Reject on the same order
+  // at once can't both act on it.
+  const { data: delivered, error } = await supabaseAdmin.rpc("decide_payment", {
+    p_order: order.id,
+    p_approve: approve,
+  });
+  if (error) {
+    await sendMessage(
+      chatId,
+      error.message.includes("already_decided")
+        ? "⚠️ This order was already decided."
+        : `❌ ${error.message}`,
+    );
+    return;
+  }
+
   if (!approve) {
-    const { error } = await supabaseAdmin.rpc("release_order", {
-      p_order: order.id,
-      p_status: "cancelled",
-    });
-    if (error) return void (await sendMessage(chatId, `❌ ${error.message}`));
     await sendMessage(chatId, `❌ Order ${short(String(order.id))} rejected and stock released.`);
     if (tid)
       await sendMessage(
@@ -562,14 +579,6 @@ export async function decidePayment(chatId: number, ref: string, approve: boolea
     return;
   }
 
-  await supabaseAdmin
-    .from("orders")
-    .update({ status: "paid", paid_at: new Date().toISOString() })
-    .eq("id", order.id);
-  const { data: delivered, error } = await supabaseAdmin.rpc("deliver_order", {
-    p_order: order.id,
-  });
-  if (error) return void (await sendMessage(chatId, `❌ ${error.message}`));
   const payloads = ((delivered ?? []) as { payload: string }[]).map((r) => r.payload);
 
   const percent = await numSetting("referral_percent", 5);

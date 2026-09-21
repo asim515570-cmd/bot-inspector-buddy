@@ -122,3 +122,28 @@ export async function answerCallbackQuery(
 export async function telegramInfo(method: string): Promise<unknown> {
   return callTelegram(method, {});
 }
+
+const BROADCAST_BATCH_SIZE = 25;
+const BROADCAST_BATCH_DELAY_MS = 900; // ~28 msg/s, under Telegram's ~30 msg/s broadcast limit
+export const BROADCAST_MAX_RECIPIENTS = 2000;
+
+/**
+ * Sends the same text to many chats in small concurrent batches instead of
+ * one message at a time. A single unreachable/blocked chat never stops the
+ * rest — failures are swallowed per-recipient and simply not counted as sent.
+ */
+export async function broadcastMessage(chatIds: number[], text: string): Promise<number> {
+  let sent = 0;
+  const capped = chatIds.slice(0, BROADCAST_MAX_RECIPIENTS);
+  for (let i = 0; i < capped.length; i += BROADCAST_BATCH_SIZE) {
+    const batch = capped.slice(i, i + BROADCAST_BATCH_SIZE);
+    const results = await Promise.allSettled(batch.map((chatId) => sendMessage(chatId, text)));
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value !== null) sent += 1;
+    }
+    if (i + BROADCAST_BATCH_SIZE < capped.length) {
+      await new Promise((resolve) => setTimeout(resolve, BROADCAST_BATCH_DELAY_MS));
+    }
+  }
+  return sent;
+}

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { timingSafeEqual } from "@/lib/telegram/validation";
 
 /**
  * Telegram webhook receiver.
@@ -7,12 +8,6 @@ import { createFileRoute } from "@tanstack/react-router";
  * on every request as the `X-Telegram-Bot-Api-Secret-Token` header. Requests
  * without an exact match are rejected with 401 before any processing.
  */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 export const Route = createFileRoute("/api/public/telegram/webhook")({
   server: {
