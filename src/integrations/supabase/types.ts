@@ -527,7 +527,7 @@ export type Database = {
           p_bot_user: string
           p_delta: number
           p_order_id?: string
-          p_reason?: string
+          p_reason: string
         }
         Returns: number
       }
