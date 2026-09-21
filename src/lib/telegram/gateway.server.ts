@@ -14,6 +14,7 @@ async function callTelegram(
   const lovableApiKey = process.env["LOVABLE_API_KEY"];
   const telegramApiKey = process.env["TELEGRAM_API_KEY"];
 
+  // Both managed credentials are injected together when the connector is linked.
   if (!lovableApiKey || !telegramApiKey) {
     console.error(`[telegram] ${method} skipped: gateway not configured`);
     return null;
@@ -29,9 +30,19 @@ async function callTelegram(
       },
       body: JSON.stringify(body),
     });
-    const json = (await res.json()) as { ok?: boolean; description?: string };
-    if (!json?.ok) {
-      console.warn(`[telegram] ${method} failed: ${json?.description ?? "unknown"}`);
+    const responseText = await res.text();
+    let json: { ok?: boolean; description?: string; error?: string; message?: string; type?: string };
+    try {
+      json = JSON.parse(responseText) as typeof json;
+    } catch {
+      console.error(
+        `[telegram] ${method} failed [${res.status}]: ${responseText.slice(0, 500) || "empty response"}`,
+      );
+      return null;
+    }
+    if (!res.ok || !json.ok) {
+      const detail = json.description ?? json.error ?? json.message ?? json.type ?? responseText;
+      console.error(`[telegram] ${method} failed [${res.status}]: ${detail}`);
     }
     return json;
   } catch (err) {
